@@ -46,7 +46,7 @@ function gid() {
 }
 
 function setScoreLabel(sets: SetScore[]) {
-  return sets.length === 0 ? '-' : sets.map((s) => `${s.sungho}-${s.yunhee}`).join(' / ')
+  return sets.length === 0 ? '-' : sets.map((s) => `${s.yunhee}-${s.sungho}`).join(' / ')
 }
 
 function matchWinner(sets: SetScore[]): UserName | '무승부' | null {
@@ -112,6 +112,30 @@ export default function TennisPlan() {
   const [siteForm, setSiteForm] = useState({ name: '', url: '' })
 
   const [dbError, setDbError] = useState('')
+
+  // ─── PWA 설치 ───
+  const [installPrompt, setInstallPrompt] = useState<any>(null)
+  const [showInstallBanner, setShowInstallBanner] = useState(false)
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      e.preventDefault()
+      setInstallPrompt(e)
+      setShowInstallBanner(true)
+    }
+    window.addEventListener('beforeinstallprompt', handler)
+    return () => window.removeEventListener('beforeinstallprompt', handler)
+  }, [])
+
+  const handleInstall = async () => {
+    if (!installPrompt) return
+    installPrompt.prompt()
+    const result = await installPrompt.userChoice
+    if (result.outcome === 'accepted') {
+      setShowInstallBanner(false)
+      setInstallPrompt(null)
+    }
+  }
 
   // ─── 초기 데이터 로드 ───
   useEffect(() => {
@@ -287,7 +311,7 @@ export default function TennisPlan() {
         <header className="mb-4 flex items-center justify-between">
           <h1 className="text-xl font-bold text-emerald-700 sm:text-2xl">테니스 플랜</h1>
           <div className="flex items-center gap-1 rounded-xl bg-white p-1 shadow-sm ring-1 ring-emerald-100">
-            {(['성호', '윤희'] as UserName[]).map((u) => (
+            {(['윤희', '성호'] as UserName[]).map((u) => (
               <button key={u} onClick={() => setUser(u)}
                 className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-all ${user === u ? 'bg-emerald-500 text-white shadow' : 'text-slate-500 active:bg-emerald-50'}`}>
                 {u}
@@ -295,6 +319,22 @@ export default function TennisPlan() {
             ))}
           </div>
         </header>
+
+        {/* ─── PWA 설치 배너 ─── */}
+        {showInstallBanner && (
+          <div className="mb-4 flex items-center justify-between rounded-2xl bg-emerald-600 px-4 py-3 text-white shadow-sm">
+            <div>
+              <p className="text-sm font-bold">앱으로 설치하기</p>
+              <p className="text-[11px] text-emerald-100">홈 화면에 추가하면 더 빠르게 사용할 수 있어요</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setShowInstallBanner(false)}
+                className="rounded-lg px-2 py-1 text-xs text-emerald-200 active:text-white">닫기</button>
+              <button onClick={handleInstall}
+                className="rounded-xl bg-white px-4 py-2 text-xs font-bold text-emerald-700 shadow active:bg-emerald-50">설치</button>
+            </div>
+          </div>
+        )}
 
         {/* ─── 예약 사이트 바로가기 (접기/펴기) ─── */}
         <section className="mb-4 rounded-2xl bg-white shadow-sm ring-1 ring-slate-100">
@@ -578,8 +618,8 @@ export default function TennisPlan() {
                       )}
                       {(m?.comment_sungho || m?.comment_yunhee) && (
                         <div className="mt-1.5 space-y-0.5">
-                          {m.comment_sungho && <p className="text-[11px] text-slate-500"><span className="font-semibold text-emerald-600">성호:</span> {m.comment_sungho}</p>}
                           {m.comment_yunhee && <p className="text-[11px] text-slate-500"><span className="font-semibold text-sky-600">윤희:</span> {m.comment_yunhee}</p>}
+                          {m.comment_sungho && <p className="text-[11px] text-slate-500"><span className="font-semibold text-emerald-600">성호:</span> {m.comment_sungho}</p>}
                         </div>
                       )}
                     </div>
@@ -670,21 +710,21 @@ export default function TennisPlan() {
                       </div>
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-emerald-700">성호</span>
-                          <button onClick={() => updSet(i, 'sungho', -1)}
-                            className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-lg font-bold text-slate-500 active:bg-slate-100">−</button>
-                          <span className="w-8 text-center text-xl font-black text-slate-900">{s.sungho}</span>
-                          <button onClick={() => updSet(i, 'sungho', 1)}
-                            className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-emerald-400 text-lg font-bold text-emerald-600 active:bg-emerald-50">+</button>
-                        </div>
-                        <span className="text-lg font-bold text-slate-300">:</span>
-                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-sky-700">윤희</span>
                           <button onClick={() => updSet(i, 'yunhee', -1)}
                             className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-lg font-bold text-slate-500 active:bg-slate-100">−</button>
                           <span className="w-8 text-center text-xl font-black text-slate-900">{s.yunhee}</span>
                           <button onClick={() => updSet(i, 'yunhee', 1)}
                             className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-sky-400 text-lg font-bold text-sky-600 active:bg-sky-50">+</button>
-                          <span className="text-xs font-bold text-sky-700">윤희</span>
+                        </div>
+                        <span className="text-lg font-bold text-slate-300">:</span>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => updSet(i, 'sungho', -1)}
+                            className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-lg font-bold text-slate-500 active:bg-slate-100">−</button>
+                          <span className="w-8 text-center text-xl font-black text-slate-900">{s.sungho}</span>
+                          <button onClick={() => updSet(i, 'sungho', 1)}
+                            className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-emerald-400 text-lg font-bold text-emerald-600 active:bg-emerald-50">+</button>
+                          <span className="text-xs font-bold text-emerald-700">성호</span>
                         </div>
                       </div>
                     </div>
