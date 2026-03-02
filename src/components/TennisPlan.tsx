@@ -1,26 +1,27 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { supabase } from '../lib/supabase'
 
 type UserName = '성호' | '윤희'
 
 type Schedule = {
   id: string
   date: string
-  startTime?: string
-  endTime?: string
+  start_time?: string
+  end_time?: string
   court?: string
   note?: string
-  matchId?: string
+  match_id?: string
 }
 
 type SetScore = { sungho: number; yunhee: number }
 
 type Match = {
   id: string
-  scheduleId: string
+  schedule_id: string
   date: string
   sets: SetScore[]
-  commentSungho?: string
-  commentYunhee?: string
+  comment_sungho?: string
+  comment_yunhee?: string
 }
 
 type BookingSite = {
@@ -28,14 +29,6 @@ type BookingSite = {
   name: string
   url: string
 }
-
-const SK = {
-  user: 'tp-user',
-  schedules: 'tp-schedules',
-  matches: 'tp-matches',
-  sites: 'tp-sites',
-  sitesOpen: 'tp-sites-open',
-} as const
 
 const HOURS = ['06', '07', '08', '09', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22'] as const
 
@@ -50,14 +43,6 @@ function fmtDate(s: string) {
 
 function gid() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
-}
-
-function ld<T>(k: string, fb: T): T {
-  try { const r = localStorage.getItem(k); return r ? JSON.parse(r) as T : fb } catch { return fb }
-}
-
-function sv<T>(k: string, v: T) {
-  try { localStorage.setItem(k, JSON.stringify(v)) } catch { /* */ }
 }
 
 function setScoreLabel(sets: SetScore[]) {
@@ -90,10 +75,17 @@ function monthGrid(md: Date, scheds: Schedule[], matches: Match[]): CDay[] {
 
 export default function TennisPlan() {
   const today = useMemo(() => new Date(), [])
-  const [user, setUser] = useState<UserName>('성호')
+  const [user, setUser] = useState<UserName>(() => {
+    try {
+      const saved = localStorage.getItem('tp-user')
+      if (saved === '"성호"' || saved === '"윤희"') return JSON.parse(saved)
+    } catch { /* */ }
+    return '성호'
+  })
   const [schedules, setSchedules] = useState<Schedule[]>([])
   const [matches, setMatches] = useState<Match[]>([])
   const [sites, setSites] = useState<BookingSite[]>([])
+  const [loading, setLoading] = useState(true)
   const [month, setMonth] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1))
   const [sel, setSel] = useState(() => ds(today))
   const [sitesOpen, setSitesOpen] = useState(false)
@@ -112,45 +104,75 @@ export default function TennisPlan() {
 
   const [siteForm, setSiteForm] = useState({ name: '', url: '' })
 
+  // ─── 초기 데이터 로드 ───
   useEffect(() => {
-    const u = ld<UserName | null>(SK.user, null)
-    if (u === '성호' || u === '윤희') setUser(u)
-    setSchedules(ld(SK.schedules, []))
-    setMatches(ld(SK.matches, []))
-    setSites(ld(SK.sites, []))
-    setSitesOpen(ld(SK.sitesOpen, false))
+    async function load() {
+      const [sRes, mRes, bRes] = await Promise.all([
+        supabase.from('schedules').select('*').order('date'),
+        supabase.from('matches').select('*').order('date'),
+        supabase.from('booking_sites').select('*').order('created_at'),
+      ])
+      if (sRes.data) setSchedules(sRes.data)
+      if (mRes.data) setMatches(mRes.data)
+      if (bRes.data) setSites(bRes.data)
+      setLoading(false)
+    }
+    load()
   }, [])
 
-  useEffect(() => { sv(SK.user, user) }, [user])
-  useEffect(() => { sv(SK.schedules, schedules) }, [schedules])
-  useEffect(() => { sv(SK.matches, matches) }, [matches])
-  useEffect(() => { sv(SK.sites, sites) }, [sites])
-  useEffect(() => { sv(SK.sitesOpen, sitesOpen) }, [sitesOpen])
+  // 사용자 선택은 브라우저에 저장
+  useEffect(() => {
+    try { localStorage.setItem('tp-user', JSON.stringify(user)) } catch { /* */ }
+  }, [user])
 
   const grid = useMemo(() => monthGrid(month, schedules, matches), [month, schedules, matches])
   const ml = `${month.getFullYear()}년 ${month.getMonth() + 1}월`
 
-  const daySch = useMemo(() => schedules.filter((s) => s.date === sel).sort((a, b) => (a.startTime || '').localeCompare(b.startTime || '')), [schedules, sel])
+  const daySch = useMemo(() => schedules.filter((s) => s.date === sel).sort((a, b) => (a.start_time || '').localeCompare(b.start_time || '')), [schedules, sel])
 
-  const matchForSchedule = useCallback((schedId: string) => matches.find((m) => m.scheduleId === schedId), [matches])
+  const matchForSchedule = useCallback((schedId: string) => matches.find((m) => m.schedule_id === schedId), [matches])
 
   const selectDate = useCallback((d: Date) => { setSel(ds(d)); setPanel(null) }, [])
 
   // ─── 일정 CRUD ───
   const openSchedForm = (s?: Schedule) => {
-    setSf({ id: s?.id ?? '', date: s?.date ?? sel, startTime: s?.startTime ?? '', endTime: s?.endTime ?? '', court: s?.court ?? '', note: s?.note ?? '' })
+    setSf({
+      id: s?.id ?? '',
+      date: s?.date ?? sel,
+      startTime: s?.start_time ?? '',
+      endTime: s?.end_time ?? '',
+      court: s?.court ?? '',
+      note: s?.note ?? '',
+    })
     setPanel('schedule')
   }
 
-  const saveSched = () => {
-    const base: Schedule = { id: sf.id || gid(), date: sf.date || sel, startTime: sf.startTime || undefined, endTime: sf.endTime || undefined, court: sf.court || undefined, note: sf.note || undefined }
-    setSchedules((p) => { const n = sf.id ? p.map((s) => s.id === sf.id ? { ...base, matchId: s.matchId } : s) : [...p, base]; sv(SK.schedules, n); return n })
+  const saveSched = async () => {
+    const id = sf.id || gid()
+    const row = {
+      id,
+      date: sf.date || sel,
+      start_time: sf.startTime || null,
+      end_time: sf.endTime || null,
+      court: sf.court || null,
+      note: sf.note || null,
+    }
+
+    if (sf.id) {
+      const { data } = await supabase.from('schedules').update(row).eq('id', sf.id).select().single()
+      if (data) setSchedules((p) => p.map((s) => s.id === sf.id ? data : s))
+    } else {
+      const { data } = await supabase.from('schedules').insert(row).select().single()
+      if (data) setSchedules((p) => [...p, data])
+    }
     setPanel(null)
   }
 
-  const deleteSched = (id: string) => {
-    setSchedules((p) => { const n = p.filter((s) => s.id !== id); sv(SK.schedules, n); return n })
-    setMatches((p) => { const n = p.filter((m) => m.scheduleId !== id); sv(SK.matches, n); return n })
+  const deleteSched = async (id: string) => {
+    await supabase.from('matches').delete().eq('schedule_id', id)
+    await supabase.from('schedules').delete().eq('id', id)
+    setSchedules((p) => p.filter((s) => s.id !== id))
+    setMatches((p) => p.filter((m) => m.schedule_id !== id))
   }
 
   // ─── 경기 CRUD ───
@@ -158,8 +180,8 @@ export default function TennisPlan() {
     setMSchedId(schedId)
     setMEditId(existing?.id ?? null)
     setMSets(existing?.sets?.length ? existing.sets.map((s) => ({ ...s })) : [{ sungho: 0, yunhee: 0 }])
-    setMCommentS(existing?.commentSungho ?? '')
-    setMCommentY(existing?.commentYunhee ?? '')
+    setMCommentS(existing?.comment_sungho ?? '')
+    setMCommentY(existing?.comment_yunhee ?? '')
     setPanel('match')
   }
 
@@ -167,32 +189,61 @@ export default function TennisPlan() {
     setMSets((prev) => prev.map((s, j) => j === i ? { ...s, [p]: Math.max(0, s[p] + d) } : s))
   }
 
-  const saveMatchResult = () => {
+  const saveMatchResult = async () => {
     if (!mSets.some((s) => s.sungho > 0 || s.yunhee > 0)) return
-    const base: Match = { id: mEditId ?? gid(), scheduleId: mSchedId, date: sel, sets: mSets, commentSungho: mCommentS || undefined, commentYunhee: mCommentY || undefined }
-    setMatches((p) => { const n = mEditId ? p.map((m) => m.id === mEditId ? base : m) : [...p, base]; sv(SK.matches, n); return n })
-    setSchedules((p) => { const n = p.map((s) => s.id === mSchedId ? { ...s, matchId: base.id } : s); sv(SK.schedules, n); return n })
+    const id = mEditId ?? gid()
+    const row = {
+      id,
+      schedule_id: mSchedId,
+      date: sel,
+      sets: mSets,
+      comment_sungho: mCommentS || null,
+      comment_yunhee: mCommentY || null,
+    }
+
+    if (mEditId) {
+      const { data } = await supabase.from('matches').update(row).eq('id', mEditId).select().single()
+      if (data) setMatches((p) => p.map((m) => m.id === mEditId ? data : m))
+    } else {
+      const { data } = await supabase.from('matches').insert(row).select().single()
+      if (data) setMatches((p) => [...p, data])
+    }
+
+    await supabase.from('schedules').update({ match_id: id }).eq('id', mSchedId)
+    setSchedules((p) => p.map((s) => s.id === mSchedId ? { ...s, match_id: id } : s))
     setPanel(null)
   }
 
-  const deleteMatchResult = (matchId: string, schedId: string) => {
-    setMatches((p) => { const n = p.filter((m) => m.id !== matchId); sv(SK.matches, n); return n })
-    setSchedules((p) => { const n = p.map((s) => s.id === schedId ? { ...s, matchId: undefined } : s); sv(SK.schedules, n); return n })
+  const deleteMatchResult = async (matchId: string, schedId: string) => {
+    await supabase.from('matches').delete().eq('id', matchId)
+    await supabase.from('schedules').update({ match_id: null }).eq('id', schedId)
+    setMatches((p) => p.filter((m) => m.id !== matchId))
+    setSchedules((p) => p.map((s) => s.id === schedId ? { ...s, match_id: undefined } : s))
   }
 
   // ─── 사이트 CRUD ───
-  const addSite = () => {
+  const addSite = async () => {
     if (!siteForm.name.trim() || !siteForm.url.trim()) return
-    const ns: BookingSite = { id: gid(), name: siteForm.name.trim(), url: siteForm.url.trim() }
-    setSites((p) => { const n = [...p, ns]; sv(SK.sites, n); return n })
+    const row = { id: gid(), name: siteForm.name.trim(), url: siteForm.url.trim() }
+    const { data } = await supabase.from('booking_sites').insert(row).select().single()
+    if (data) setSites((p) => [...p, data])
     setSiteForm({ name: '', url: '' })
   }
 
-  const delSite = (id: string) => {
-    setSites((p) => { const n = p.filter((s) => s.id !== id); sv(SK.sites, n); return n })
+  const delSite = async (id: string) => {
+    await supabase.from('booking_sites').delete().eq('id', id)
+    setSites((p) => p.filter((s) => s.id !== id))
   }
 
   const wd = ['일', '월', '화', '수', '목', '금', '토']
+
+  if (loading) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-gradient-to-b from-emerald-50 to-white">
+        <p className="text-sm text-slate-500">로딩 중...</p>
+      </main>
+    )
+  }
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-emerald-50 to-white text-slate-900">
@@ -317,14 +368,13 @@ export default function TennisPlan() {
                 const w = m ? matchWinner(m.sets) : null
                 return (
                   <div key={s.id} className="rounded-2xl border border-slate-100 bg-slate-50/50 p-3">
-                    {/* 일정 정보 */}
                     <div className="flex items-start justify-between">
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-1.5">
                           <span className="text-sm font-bold text-slate-900">{s.court || '장소 미정'}</span>
-                          {(s.startTime || s.endTime) && (
+                          {(s.start_time || s.end_time) && (
                             <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
-                              {s.startTime?.replace(':00', '시')} ~ {s.endTime?.replace(':00', '시')}
+                              {s.start_time?.replace(':00', '시')} ~ {s.end_time?.replace(':00', '시')}
                             </span>
                           )}
                         </div>
@@ -335,7 +385,6 @@ export default function TennisPlan() {
                         <button onClick={() => deleteSched(s.id)} className="rounded-lg px-2 py-1 text-red-400 active:bg-red-50">삭제</button>
                       </div>
                     </div>
-                    {/* 경기 결과 영역 */}
                     <div className="mt-2 border-t border-slate-100 pt-2">
                       {m ? (
                         <div className="flex items-center justify-between">
@@ -359,10 +408,10 @@ export default function TennisPlan() {
                           결과 기록하기
                         </button>
                       )}
-                      {(m?.commentSungho || m?.commentYunhee) && (
+                      {(m?.comment_sungho || m?.comment_yunhee) && (
                         <div className="mt-1.5 space-y-0.5">
-                          {m.commentSungho && <p className="text-[11px] text-slate-500"><span className="font-semibold text-emerald-600">성호:</span> {m.commentSungho}</p>}
-                          {m.commentYunhee && <p className="text-[11px] text-slate-500"><span className="font-semibold text-sky-600">윤희:</span> {m.commentYunhee}</p>}
+                          {m.comment_sungho && <p className="text-[11px] text-slate-500"><span className="font-semibold text-emerald-600">성호:</span> {m.comment_sungho}</p>}
+                          {m.comment_yunhee && <p className="text-[11px] text-slate-500"><span className="font-semibold text-sky-600">윤희:</span> {m.comment_yunhee}</p>}
                         </div>
                       )}
                     </div>
@@ -452,7 +501,6 @@ export default function TennisPlan() {
                         )}
                       </div>
                       <div className="flex items-center justify-between">
-                        {/* 성호 */}
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-bold text-emerald-700">성호</span>
                           <button onClick={() => updSet(i, 'sungho', -1)}
@@ -462,7 +510,6 @@ export default function TennisPlan() {
                             className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-emerald-400 text-lg font-bold text-emerald-600 active:bg-emerald-50">+</button>
                         </div>
                         <span className="text-lg font-bold text-slate-300">:</span>
-                        {/* 윤희 */}
                         <div className="flex items-center gap-2">
                           <button onClick={() => updSet(i, 'yunhee', -1)}
                             className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-lg font-bold text-slate-500 active:bg-slate-100">−</button>
@@ -477,7 +524,6 @@ export default function TennisPlan() {
                 </div>
               </div>
 
-              {/* 자동 계산 */}
               {mSets.some((s) => s.sungho > 0 || s.yunhee > 0) && (
                 <div className="rounded-2xl bg-slate-50 px-4 py-3">
                   <div className="flex items-center justify-between text-sm">
