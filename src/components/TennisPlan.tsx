@@ -632,12 +632,14 @@ export default function TennisPlan() {
           {/* ─── 일정 등록 폼 ─── */}
           {panel === 'schedule' && (
             <div className="space-y-3">
-              <div className="grid grid-cols-[auto,1fr] items-center gap-x-3 gap-y-3">
-                <span className="text-xs font-medium text-slate-600">날짜</span>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">날짜</label>
                 <input type="date" value={sf.date} onChange={(e) => setSf((p) => ({ ...p, date: e.target.value }))}
-                  className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400" />
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400" />
+              </div>
 
-                <span className="text-xs font-medium text-slate-600">시간</span>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">시간</label>
                 <div className="flex items-center gap-2">
                   <select value={sf.startTime ? sf.startTime.slice(0, 2) : ''}
                     onChange={(e) => setSf((p) => ({ ...p, startTime: e.target.value ? `${e.target.value}:00` : '' }))}
@@ -653,35 +655,38 @@ export default function TennisPlan() {
                     {HOURS.map((h) => <option key={h} value={h}>{h}시</option>)}
                   </select>
                 </div>
+              </div>
 
-                <span className="text-xs font-medium text-slate-600">장소</span>
-                <div className="relative">
-                  <input type="text" placeholder="장소명 입력 또는 선택" value={sf.court}
-                    onChange={(e) => setSf((p) => ({ ...p, court: e.target.value }))}
-                    onFocus={() => setCourtDd(true)}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400" />
-                  {courtDd && sites.length > 0 && (
-                    <ul className="absolute left-0 right-0 top-full z-10 mt-1 max-h-48 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
-                      {sites.map((s) => (
-                        <li key={s.id}>
-                          <button onClick={() => { setSf((p) => ({ ...p, court: s.name })); setCourtDd(false) }}
-                            className="flex w-full items-center justify-between px-3 py-2.5 text-left text-sm active:bg-emerald-50">
-                            <span className="font-medium text-slate-900">{s.name}</span>
-                            <a href={s.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
-                              className="text-xs text-emerald-600">바로가기 ↗</a>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
+              <div className="relative">
+                <label className="mb-1 block text-xs font-medium text-slate-600">장소</label>
+                <input type="text" placeholder="장소명 입력 또는 선택" value={sf.court}
+                  onChange={(e) => setSf((p) => ({ ...p, court: e.target.value }))}
+                  onFocus={() => setCourtDd(true)}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400" />
+                {courtDd && sites.length > 0 && (
+                  <ul className="absolute left-0 right-0 top-full z-10 mt-1 max-h-48 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
+                    {sites.map((s) => (
+                      <li key={s.id}>
+                        <button onClick={() => { setSf((p) => ({ ...p, court: s.name })); setCourtDd(false) }}
+                          className="flex w-full items-center justify-between px-3 py-2.5 text-left text-sm active:bg-emerald-50">
+                          <span className="font-medium text-slate-900">{s.name}</span>
+                          <a href={s.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
+                            className="text-xs text-emerald-600">바로가기 ↗</a>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
 
-                <span className="text-xs font-medium text-slate-600">메모</span>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">메모</label>
                 <textarea rows={2} placeholder="특이사항" value={sf.note}
                   onChange={(e) => setSf((p) => ({ ...p, note: e.target.value }))}
                   onFocus={() => setCourtDd(false)}
                   className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400" />
               </div>
+
               <button onClick={saveSched}
                 className="w-full rounded-xl bg-emerald-500 py-3 text-sm font-bold text-white shadow-sm active:bg-emerald-600">
                 {sf.id ? '일정 수정' : '일정 등록'}
@@ -708,23 +713,23 @@ export default function TennisPlan() {
                             className="text-[11px] text-red-400 active:text-red-600">삭제</button>
                         )}
                       </div>
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-sky-700">윤희</span>
+                      <div className="flex items-center justify-between gap-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-6 text-xs font-bold text-sky-700">윤희</span>
                           <button onClick={() => updSet(i, 'yunhee', -1)}
-                            className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-lg font-bold text-slate-500 active:bg-slate-100">−</button>
-                          <span className="w-8 text-center text-xl font-black text-slate-900">{s.yunhee}</span>
+                            className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-base font-bold text-slate-500 active:bg-slate-100">−</button>
+                          <span className="w-6 text-center text-lg font-black text-slate-900">{s.yunhee}</span>
                           <button onClick={() => updSet(i, 'yunhee', 1)}
-                            className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-sky-400 text-lg font-bold text-sky-600 active:bg-sky-50">+</button>
+                            className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-sky-400 text-base font-bold text-sky-600 active:bg-sky-50">+</button>
                         </div>
-                        <span className="text-lg font-bold text-slate-300">:</span>
-                        <div className="flex items-center gap-2">
+                        <span className="text-base font-bold text-slate-300">:</span>
+                        <div className="flex items-center gap-1.5">
                           <button onClick={() => updSet(i, 'sungho', -1)}
-                            className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-lg font-bold text-slate-500 active:bg-slate-100">−</button>
-                          <span className="w-8 text-center text-xl font-black text-slate-900">{s.sungho}</span>
+                            className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-base font-bold text-slate-500 active:bg-slate-100">−</button>
+                          <span className="w-6 text-center text-lg font-black text-slate-900">{s.sungho}</span>
                           <button onClick={() => updSet(i, 'sungho', 1)}
-                            className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-emerald-400 text-lg font-bold text-emerald-600 active:bg-emerald-50">+</button>
-                          <span className="text-xs font-bold text-emerald-700">성호</span>
+                            className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-emerald-400 text-base font-bold text-emerald-600 active:bg-emerald-50">+</button>
+                          <span className="w-6 text-right text-xs font-bold text-emerald-700">성호</span>
                         </div>
                       </div>
                     </div>
