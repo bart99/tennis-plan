@@ -89,6 +89,7 @@ export default function TennisPlan() {
   const [month, setMonth] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1))
   const [sel, setSel] = useState(() => ds(today))
   const [sitesOpen, setSitesOpen] = useState(false)
+  const [viewMode, setViewMode] = useState<'calendar' | 'list'>('calendar')
 
   type Panel = null | 'schedule' | 'match'
   const [panel, setPanel] = useState<Panel>(null)
@@ -142,6 +143,10 @@ export default function TennisPlan() {
   const ml = `${month.getFullYear()}년 ${month.getMonth() + 1}월`
 
   const daySch = useMemo(() => schedules.filter((s) => s.date === sel).sort((a, b) => (a.start_time || '').localeCompare(b.start_time || '')), [schedules, sel])
+
+  const todayStr = useMemo(() => ds(today), [today])
+  const upcomingList = useMemo(() => schedules.filter((s) => s.date >= todayStr).sort((a, b) => a.date.localeCompare(b.date) || (a.start_time || '').localeCompare(b.start_time || '')), [schedules, todayStr])
+  const pastList = useMemo(() => schedules.filter((s) => s.date < todayStr).sort((a, b) => b.date.localeCompare(a.date) || (b.start_time || '').localeCompare(a.start_time || '')), [schedules, todayStr])
 
   const matchForSchedule = useCallback((schedId: string) => matches.find((m) => m.schedule_id === schedId), [matches])
 
@@ -321,7 +326,22 @@ export default function TennisPlan() {
           )}
         </section>
 
+        {/* ─── 뷰 토글 ─── */}
+        <div className="mb-3 flex items-center justify-center">
+          <div className="flex items-center gap-1 rounded-xl bg-white p-1 shadow-sm ring-1 ring-slate-100">
+            <button onClick={() => setViewMode('calendar')}
+              className={`rounded-lg px-4 py-1.5 text-xs font-bold transition-all ${viewMode === 'calendar' ? 'bg-emerald-500 text-white shadow' : 'text-slate-500 active:bg-emerald-50'}`}>
+              캘린더
+            </button>
+            <button onClick={() => setViewMode('list')}
+              className={`rounded-lg px-4 py-1.5 text-xs font-bold transition-all ${viewMode === 'list' ? 'bg-emerald-500 text-white shadow' : 'text-slate-500 active:bg-emerald-50'}`}>
+              목록
+            </button>
+          </div>
+        </div>
+
         {/* ─── 캘린더 ─── */}
+        {viewMode === 'calendar' && (
         <section className="mb-4 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
           <div className="mb-3 flex items-center justify-between">
             <button onClick={() => setMonth((p) => new Date(p.getFullYear(), p.getMonth() - 1, 1))}
@@ -365,8 +385,114 @@ export default function TennisPlan() {
             <span className="flex items-center gap-1"><span className="inline-block h-1.5 w-1.5 rounded-full bg-sky-400" /> 경기 기록</span>
           </div>
         </section>
+        )}
+
+        {/* ─── 목록 뷰 ─── */}
+        {viewMode === 'list' && (
+        <section className="mb-4 space-y-4">
+          {/* 예정 일정 */}
+          <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
+            <h3 className="mb-3 text-sm font-bold text-emerald-700">예정 일정</h3>
+            {upcomingList.length === 0 ? (
+              <p className="py-4 text-center text-sm text-slate-400">예정된 일정이 없어요.</p>
+            ) : (
+              <div className="space-y-2">
+                {upcomingList.map((s) => {
+                  const dateObj = new Date(s.date + 'T00:00:00')
+                  const dow = wd[dateObj.getDay()]
+                  const m = matchForSchedule(s.id)
+                  const w = m ? matchWinner(m.sets) : null
+                  return (
+                    <button key={s.id} onClick={() => { setSel(s.date); setViewMode('calendar'); setPanel(null) }}
+                      className="flex w-full items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/50 p-3 text-left active:bg-emerald-50/60">
+                      <div className="flex flex-col items-center">
+                        <span className="text-lg font-black text-slate-900">{dateObj.getDate()}</span>
+                        <span className="text-[10px] font-semibold text-slate-400">{dow}</span>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-sm font-bold text-slate-900">{s.court || '장소 미정'}</span>
+                          {s.date === todayStr && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">오늘</span>}
+                        </div>
+                        <div className="mt-0.5 flex items-center gap-2 text-[11px] text-slate-500">
+                          <span>{fmtDate(s.date)}</span>
+                          {(s.start_time || s.end_time) && (
+                            <span>{s.start_time?.replace(':00', '시')} ~ {s.end_time?.replace(':00', '시')}</span>
+                          )}
+                        </div>
+                      </div>
+                      {m && (
+                        <div className="flex flex-col items-end gap-0.5">
+                          <span className="text-xs font-bold text-slate-700">{setScoreLabel(m.sets)}</span>
+                          {w && w !== '무승부' && (
+                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${w === user ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
+                              {w === user ? '승' : '패'}
+                            </span>
+                          )}
+                          {w === '무승부' && <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-600">무승부</span>}
+                        </div>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* 지난 기록 */}
+          <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
+            <h3 className="mb-3 text-sm font-bold text-slate-500">지난 기록</h3>
+            {pastList.length === 0 ? (
+              <p className="py-4 text-center text-sm text-slate-400">지난 기록이 없어요.</p>
+            ) : (
+              <div className="space-y-2">
+                {pastList.map((s) => {
+                  const dateObj = new Date(s.date + 'T00:00:00')
+                  const dow = wd[dateObj.getDay()]
+                  const m = matchForSchedule(s.id)
+                  const w = m ? matchWinner(m.sets) : null
+                  return (
+                    <button key={s.id} onClick={() => { setSel(s.date); setViewMode('calendar'); setPanel(null) }}
+                      className="flex w-full items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/50 p-3 text-left active:bg-emerald-50/60">
+                      <div className="flex flex-col items-center">
+                        <span className="text-lg font-black text-slate-400">{dateObj.getDate()}</span>
+                        <span className="text-[10px] font-semibold text-slate-300">{dow}</span>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-sm font-bold text-slate-700">{s.court || '장소 미정'}</span>
+                        </div>
+                        <div className="mt-0.5 flex items-center gap-2 text-[11px] text-slate-400">
+                          <span>{fmtDate(s.date)}</span>
+                          {(s.start_time || s.end_time) && (
+                            <span>{s.start_time?.replace(':00', '시')} ~ {s.end_time?.replace(':00', '시')}</span>
+                          )}
+                        </div>
+                      </div>
+                      {m ? (
+                        <div className="flex flex-col items-end gap-0.5">
+                          <span className="text-xs font-bold text-slate-600">{setScoreLabel(m.sets)}</span>
+                          {w && w !== '무승부' && (
+                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${w === user ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
+                              {w === user ? '승' : '패'}
+                            </span>
+                          )}
+                          {w === '무승부' && <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-600">무승부</span>}
+                        </div>
+                      ) : (
+                        <span className="text-[11px] text-slate-300">결과 없음</span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </section>
+        )}
 
         {/* ─── 선택 날짜 상세 ─── */}
+        {viewMode === 'calendar' && (
         <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-base font-bold text-slate-800">{fmtDate(sel)}</h2>
@@ -579,6 +705,7 @@ export default function TennisPlan() {
             </div>
           )}
         </section>
+        )}
       </div>
     </main>
   )
