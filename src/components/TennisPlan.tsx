@@ -45,9 +45,16 @@ function gid() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 }
 
-function setScoreLabel(sets: SetScore[]) {
-  return sets.length === 0 ? '-' : sets.map((s) => `${s.yunhee}-${s.sungho}`).join(' / ')
+function isBagel(s: SetScore) {
+  return (s.sungho === 0 && s.yunhee >= 6) || (s.yunhee === 0 && s.sungho >= 6)
 }
+
+function setScoreLabel(sets: SetScore[]) {
+  if (sets.length === 0) return '-'
+  return sets.map((s) => `${s.yunhee}-${s.sungho}${isBagel(s) ? ' 🥯' : ''}`).join(' / ')
+}
+
+const TENNIS_EMOJIS = ['🎾', '🥯', '🏆', '🥇', '💪', '🔥', '⚡', '👏', '🙌', '😎', '😤', '😅', '👍', '🎯', '❤️'] as const
 
 function matchWinner(sets: SetScore[]): UserName | '무승부' | null {
   if (!sets.length) return null
@@ -759,10 +766,19 @@ export default function TennisPlan() {
 
               <div>
                 <span className={`text-xs font-medium ${user === '성호' ? 'text-emerald-700' : 'text-sky-700'}`}>{user} 코멘트</span>
-                <textarea rows={2} placeholder="느낀 점, 컨디션 등"
+                <textarea id="match-comment" rows={2} placeholder="느낀 점, 컨디션 등"
                   value={user === '성호' ? mCommentS : mCommentY}
                   onChange={(e) => user === '성호' ? setMCommentS(e.target.value) : setMCommentY(e.target.value)}
                   className={`mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none ${user === '성호' ? 'focus:border-emerald-400' : 'focus:border-sky-400'}`} />
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {TENNIS_EMOJIS.map((em) => (
+                    <button key={em} type="button" onClick={() => {
+                      const add = (prev: string) => prev + em
+                      if (user === '성호') setMCommentS(add); else setMCommentY(add)
+                    }}
+                      className="flex h-8 w-8 items-center justify-center rounded-lg text-base active:bg-slate-100">{em}</button>
+                  ))}
+                </div>
               </div>
               <button onClick={saveMatchResult}
                 className="w-full rounded-xl bg-sky-500 py-3 text-sm font-bold text-white shadow-sm active:bg-sky-600">
