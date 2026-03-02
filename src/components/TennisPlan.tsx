@@ -104,17 +104,30 @@ export default function TennisPlan() {
 
   const [siteForm, setSiteForm] = useState({ name: '', url: '' })
 
+  const [dbError, setDbError] = useState('')
+
   // ─── 초기 데이터 로드 ───
   useEffect(() => {
     async function load() {
-      const [sRes, mRes, bRes] = await Promise.all([
-        supabase.from('schedules').select('*').order('date'),
-        supabase.from('matches').select('*').order('date'),
-        supabase.from('booking_sites').select('*').order('created_at'),
-      ])
-      if (sRes.data) setSchedules(sRes.data)
-      if (mRes.data) setMatches(mRes.data)
-      if (bRes.data) setSites(bRes.data)
+      try {
+        const [sRes, mRes, bRes] = await Promise.all([
+          supabase.from('schedules').select('*').order('date'),
+          supabase.from('matches').select('*').order('date'),
+          supabase.from('booking_sites').select('*').order('created_at'),
+        ])
+        const err = sRes.error || mRes.error || bRes.error
+        if (err) {
+          console.error('[supabase]', err)
+          setDbError(err.message)
+        } else {
+          if (sRes.data) setSchedules(sRes.data)
+          if (mRes.data) setMatches(mRes.data)
+          if (bRes.data) setSites(bRes.data)
+        }
+      } catch (e) {
+        console.error('[supabase]', e)
+        setDbError(e instanceof Error ? e.message : 'DB 연결 실패')
+      }
       setLoading(false)
     }
     load()
@@ -241,6 +254,16 @@ export default function TennisPlan() {
     return (
       <main className="flex min-h-screen items-center justify-center bg-gradient-to-b from-emerald-50 to-white">
         <p className="text-sm text-slate-500">로딩 중...</p>
+      </main>
+    )
+  }
+
+  if (dbError) {
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center gap-3 bg-gradient-to-b from-emerald-50 to-white px-6">
+        <p className="text-base font-bold text-red-600">DB 연결 오류</p>
+        <p className="text-center text-sm text-slate-600">{dbError}</p>
+        <button onClick={() => location.reload()} className="mt-2 rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-bold text-white">다시 시도</button>
       </main>
     )
   }
