@@ -56,19 +56,25 @@ function matchWinner(sets: SetScore[]): UserName | '무승부' | null {
   return a > b ? '성호' : b > a ? '윤희' : '무승부'
 }
 
-type CDay = { date: Date; cur: boolean; hasSched: boolean; hasMatch: boolean }
+type DaySched = { court?: string; time?: string }
+type DayMatch = { label: string; winner: UserName | '무승부' | null }
+type CDay = { date: Date; cur: boolean; scheds: DaySched[]; matches: DayMatch[] }
 
 function monthGrid(md: Date, scheds: Schedule[], matches: Match[]): CDay[] {
   const y = md.getFullYear(), mo = md.getMonth()
   const f = new Date(y, mo, 1), st = new Date(f)
   st.setDate(f.getDate() - f.getDay())
-  const sd = new Set(scheds.map((s) => s.date))
-  const md2 = new Set(matches.map((m) => m.date))
+  const schedByDate = new Map<string, Schedule[]>()
+  for (const s of scheds) { const arr = schedByDate.get(s.date) ?? []; arr.push(s); schedByDate.set(s.date, arr) }
+  const matchByDate = new Map<string, Match[]>()
+  for (const m of matches) { const arr = matchByDate.get(m.date) ?? []; arr.push(m); matchByDate.set(m.date, arr) }
   const days: CDay[] = []
   for (let i = 0; i < 42; i++) {
     const c = new Date(st); c.setDate(st.getDate() + i)
     const d = ds(c)
-    days.push({ date: c, cur: c.getMonth() === mo, hasSched: sd.has(d), hasMatch: md2.has(d) })
+    const ss = (schedByDate.get(d) ?? []).map((s) => ({ court: s.court, time: s.start_time?.slice(0, 2) }))
+    const mm = (matchByDate.get(d) ?? []).map((m) => ({ label: setScoreLabel(m.sets), winner: matchWinner(m.sets) }))
+    days.push({ date: c, cur: c.getMonth() === mo, scheds: ss, matches: mm })
   }
   return days
 }
@@ -360,29 +366,42 @@ export default function TennisPlan() {
                 const isT = d === ds(today)
                 const isS = d === sel
                 const dow = di % 7
+                const hasSched = day.scheds.length > 0
+                const hasMatch = day.matches.length > 0
+                const firstSched = day.scheds[0]
+                const firstMatch = day.matches[0]
                 return (
                   <button key={d} onClick={() => selectDate(day.date)}
-                    className={`relative flex h-12 flex-col items-center justify-center border-t border-slate-50 text-xs transition-all sm:h-14
+                    className={`relative flex min-h-[3.5rem] flex-col items-center border-t border-slate-50 px-0.5 pb-1 pt-1 text-xs transition-all sm:min-h-[4.2rem]
                       ${day.cur ? '' : 'text-slate-300'}
                       ${dow === 0 && day.cur ? 'text-rose-500' : ''}
                       ${dow === 6 && day.cur ? 'text-blue-500' : ''}
                       ${isS ? 'bg-emerald-50 ring-2 ring-inset ring-emerald-400' : 'active:bg-emerald-50/60'}`}>
-                    <span className={`flex h-7 w-7 items-center justify-center rounded-full text-[12px] sm:text-[13px]
+                    <span className={`flex h-6 w-6 items-center justify-center rounded-full text-[11px] sm:text-[12px]
                       ${isT ? 'bg-emerald-500 text-white font-bold' : 'font-medium'}`}>
                       {day.date.getDate()}
                     </span>
-                    <div className="absolute bottom-1 flex gap-0.5">
-                      {day.hasSched && <span className="h-1 w-1 rounded-full bg-emerald-400" />}
-                      {day.hasMatch && <span className="h-1 w-1 rounded-full bg-sky-400" />}
-                    </div>
+                    {day.cur && hasSched && (
+                      <span className="mt-0.5 w-full truncate text-center text-[8px] font-semibold leading-tight text-emerald-700 sm:text-[9px]">
+                        {firstSched.time ? `${firstSched.time}시` : ''}{firstSched.court ? ` ${firstSched.court.slice(0, 3)}` : ''}
+                        {day.scheds.length > 1 ? ` +${day.scheds.length - 1}` : ''}
+                      </span>
+                    )}
+                    {day.cur && hasMatch && (
+                      <span className={`mt-0.5 w-full truncate text-center text-[8px] font-bold leading-tight sm:text-[9px] ${
+                        firstMatch.winner === user ? 'text-emerald-600' : firstMatch.winner && firstMatch.winner !== '무승부' ? 'text-rose-500' : 'text-sky-600'
+                      }`}>
+                        {firstMatch.label}
+                      </span>
+                    )}
                   </button>
                 )
               })}
             </div>
           </div>
           <div className="mt-2 flex items-center gap-3 text-[10px] text-slate-400">
-            <span className="flex items-center gap-1"><span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" /> 일정</span>
-            <span className="flex items-center gap-1"><span className="inline-block h-1.5 w-1.5 rounded-full bg-sky-400" /> 경기 기록</span>
+            <span className="flex items-center gap-1"><span className="font-bold text-emerald-600">10시 OO</span> 일정</span>
+            <span className="flex items-center gap-1"><span className="font-bold text-sky-600">6-4</span> 경기 결과</span>
           </div>
         </section>
         )}
