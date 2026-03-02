@@ -304,7 +304,7 @@ export default function TennisPlan() {
   }
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-emerald-50 to-white text-slate-900">
+    <main className="min-h-screen overflow-x-hidden bg-gradient-to-b from-emerald-50 to-white text-slate-900">
       <div className="mx-auto max-w-lg px-4 pb-12 pt-5">
 
         {/* ─── 헤더 ─── */}
@@ -361,12 +361,14 @@ export default function TennisPlan() {
                   ))}
                 </div>
               )}
-              <div className="flex gap-2 text-xs">
-                <input type="text" placeholder="사이트명" value={siteForm.name} onChange={(e) => setSiteForm((p) => ({ ...p, name: e.target.value }))}
-                  className="flex-1 rounded-lg border border-slate-200 px-2.5 py-2 outline-none focus:border-emerald-400" />
-                <input type="url" placeholder="https://..." value={siteForm.url} onChange={(e) => setSiteForm((p) => ({ ...p, url: e.target.value }))}
-                  className="flex-[2] rounded-lg border border-slate-200 px-2.5 py-2 outline-none focus:border-emerald-400" />
-                <button onClick={addSite} className="rounded-lg bg-emerald-500 px-3 py-2 text-xs font-bold text-white active:bg-emerald-600">추가</button>
+              <div className="space-y-2 text-xs">
+                <div className="flex gap-2">
+                  <input type="text" placeholder="사이트명" value={siteForm.name} onChange={(e) => setSiteForm((p) => ({ ...p, name: e.target.value }))}
+                    className="w-1/3 min-w-0 rounded-lg border border-slate-200 px-2.5 py-2 outline-none focus:border-emerald-400" />
+                  <input type="url" placeholder="https://..." value={siteForm.url} onChange={(e) => setSiteForm((p) => ({ ...p, url: e.target.value }))}
+                    className="min-w-0 flex-1 rounded-lg border border-slate-200 px-2.5 py-2 outline-none focus:border-emerald-400" />
+                </div>
+                <button onClick={addSite} className="w-full rounded-lg bg-emerald-500 py-2 text-xs font-bold text-white active:bg-emerald-600">추가</button>
               </div>
             </div>
           )}
