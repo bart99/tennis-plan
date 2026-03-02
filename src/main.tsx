@@ -8,3 +8,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <TennisPlan />
   </React.StrictMode>,
 )
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then((regs) => {
+    for (const reg of regs) reg.update()
+  })
+}
