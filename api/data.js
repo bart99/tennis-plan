@@ -82,11 +82,12 @@ export default async function handler(req, res) {
     if (entity === 'booking_sites' && action === 'upsert') {
       const row = payload
       const rows = await sql`
-        INSERT INTO booking_sites (id, name, url)
-        VALUES (${row.id}, ${row.name}, ${row.url})
+        INSERT INTO booking_sites (id, name, url, sport)
+        VALUES (${row.id}, ${row.name}, ${row.url}, ${row.sport ?? 'tennis'})
         ON CONFLICT (id) DO UPDATE SET
           name = EXCLUDED.name,
-          url = EXCLUDED.url
+          url = EXCLUDED.url,
+          sport = EXCLUDED.sport
         RETURNING *
       `
       return json(res, 200, { row: rows[0] })

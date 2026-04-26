@@ -36,6 +36,7 @@ type BookingSite = {
   id: string
   name: string
   url: string
+  sport?: SportType | 'all'
 }
 
 const HOURS = ['06', '07', '08', '09', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22'] as const
@@ -43,6 +44,12 @@ const SPORT_OPTIONS: { value: SportType; label: string; icon: string }[] = [
   { value: 'tennis', label: '테니스', icon: '🎾' },
   { value: 'golf', label: '골프', icon: '⛳' },
   { value: 'running', label: '러닝', icon: '🏃' },
+]
+const SITE_SPORT_OPTIONS: { value: SportType | 'all'; label: string }[] = [
+  { value: 'all', label: '전체 공용' },
+  { value: 'tennis', label: '테니스' },
+  { value: 'golf', label: '골프' },
+  { value: 'running', label: '러닝' },
 ]
 
 function ds(d: Date) {
@@ -185,7 +192,6 @@ export default function TennisPlan() {
     runningDistanceKm: '',
     runningMinutes: '',
   })
-  const [courtDd, setCourtDd] = useState(false)
 
   const [mSchedId, setMSchedId] = useState('')
   const [mEditId, setMEditId] = useState<string | null>(null)
@@ -193,7 +199,7 @@ export default function TennisPlan() {
   const [mCommentS, setMCommentS] = useState('')
   const [mCommentY, setMCommentY] = useState('')
 
-  const [siteForm, setSiteForm] = useState({ name: '', url: '' })
+  const [siteForm, setSiteForm] = useState<{ name: string; url: string; sport: SportType | 'all' }>({ name: '', url: '', sport: 'tennis' })
 
   const [dbError, setDbError] = useState('')
 
@@ -370,10 +376,10 @@ export default function TennisPlan() {
   // ─── 사이트 CRUD ───
   const addSite = async () => {
     if (!siteForm.name.trim() || !siteForm.url.trim()) return
-    const row = { id: gid(), name: siteForm.name.trim(), url: siteForm.url.trim() }
+    const row = { id: gid(), name: siteForm.name.trim(), url: siteForm.url.trim(), sport: siteForm.sport }
     const { row: data } = await apiData<{ row: BookingSite }>({ entity: 'booking_sites', action: 'upsert', payload: row })
     if (data) setSites((p) => [...p, data])
-    setSiteForm({ name: '', url: '' })
+    setSiteForm({ name: '', url: '', sport: siteForm.sport })
   }
 
   const delSite = async (id: string) => {
@@ -451,7 +457,7 @@ export default function TennisPlan() {
                     <div key={s.id} className="flex items-center gap-1">
                       <a href={s.url} target="_blank" rel="noreferrer"
                         className="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200 active:bg-emerald-100">
-                        {s.name} ↗
+                        {s.name} {(s.sport && s.sport !== 'all') ? `· ${sportMeta({ sport: s.sport } as Schedule).label}` : '· 전체'} ↗
                       </a>
                       <button onClick={() => delSite(s.id)}
                         className="flex h-5 w-5 items-center justify-center rounded-full text-[10px] text-slate-400 hover:bg-red-50 hover:text-red-500">✕</button>
@@ -460,6 +466,10 @@ export default function TennisPlan() {
                 </div>
               )}
               <div className="space-y-2 text-xs">
+                <select value={siteForm.sport} onChange={(e) => setSiteForm((p) => ({ ...p, sport: e.target.value as SportType | 'all' }))}
+                  className="w-full rounded-lg border border-slate-200 px-2.5 py-2 outline-none focus:border-emerald-400">
+                  {SITE_SPORT_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                </select>
                 <div className="flex gap-2">
                   <input type="text" placeholder="사이트명" value={siteForm.name} onChange={(e) => setSiteForm((p) => ({ ...p, name: e.target.value }))}
                     className="w-1/3 min-w-0 rounded-lg border border-slate-200 px-2.5 py-2 outline-none focus:border-emerald-400" />
@@ -799,21 +809,23 @@ export default function TennisPlan() {
                 <label className="mb-1 block text-xs font-medium text-slate-600">{sf.sport === 'golf' ? '코스/장소' : '장소'}</label>
                 <input type="text" placeholder={sf.sport === 'running' ? '러닝 코스/장소' : '장소명 입력 또는 선택'} value={sf.court}
                   onChange={(e) => setSf((p) => ({ ...p, court: e.target.value }))}
-                  onFocus={() => setCourtDd(true)}
                   className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400" />
-                {courtDd && sites.length > 0 && (
-                  <ul className="absolute left-0 right-0 top-full z-10 mt-1 max-h-48 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
-                    {sites.map((s) => (
-                      <li key={s.id}>
-                        <button onClick={() => { setSf((p) => ({ ...p, court: s.name })); setCourtDd(false) }}
-                          className="flex w-full items-center justify-between px-3 py-2.5 text-left text-sm active:bg-emerald-50">
-                          <span className="font-medium text-slate-900">{s.name}</span>
-                          <a href={s.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
-                            className="text-xs text-emerald-600">바로가기 ↗</a>
-                        </button>
-                      </li>
+                <p className="mt-1 text-[11px] text-slate-400">
+                  직접 입력 기본, 아래 목록은 선택한 종목 기준 빠른 선택용
+                </p>
+                {sites.some((s) => s.sport === 'all' || s.sport === sf.sport || !s.sport) && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {sites.filter((s) => s.sport === 'all' || s.sport === sf.sport || !s.sport).map((s) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => setSf((p) => ({ ...p, court: s.name }))}
+                        className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 active:bg-emerald-100"
+                      >
+                        {s.name}
+                      </button>
                     ))}
-                  </ul>
+                  </div>
                 )}
               </div>
 
@@ -863,7 +875,6 @@ export default function TennisPlan() {
                 <label className="mb-1 block text-xs font-medium text-slate-600">메모</label>
                 <textarea rows={2} placeholder="특이사항" value={sf.note}
                   onChange={(e) => setSf((p) => ({ ...p, note: e.target.value }))}
-                  onFocus={() => setCourtDd(false)}
                   className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400" />
               </div>
 

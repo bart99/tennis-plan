@@ -37,7 +37,8 @@ export async function ensureSchema() {
     CREATE TABLE IF NOT EXISTS booking_sites (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
-      url TEXT NOT NULL
+      url TEXT NOT NULL,
+      sport TEXT
     )
   `
   await sql`ALTER TABLE schedules ADD COLUMN IF NOT EXISTS sport TEXT`
@@ -46,6 +47,8 @@ export async function ensureSchema() {
   await sql`UPDATE schedules SET sport = COALESCE(sport, 'tennis')`
   await sql`UPDATE schedules SET title = COALESCE(title, court, '테니스 일정')`
   await sql`UPDATE schedules SET detail_json = COALESCE(detail_json, '{}'::jsonb)`
+  await sql`ALTER TABLE booking_sites ADD COLUMN IF NOT EXISTS sport TEXT`
+  await sql`UPDATE booking_sites SET sport = COALESCE(sport, 'tennis')`
   initialized = true
 }
 
