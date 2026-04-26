@@ -40,6 +40,12 @@ export async function ensureSchema() {
       url TEXT NOT NULL
     )
   `
+  await sql`ALTER TABLE schedules ADD COLUMN IF NOT EXISTS sport TEXT`
+  await sql`ALTER TABLE schedules ADD COLUMN IF NOT EXISTS title TEXT`
+  await sql`ALTER TABLE schedules ADD COLUMN IF NOT EXISTS detail_json JSONB`
+  await sql`UPDATE schedules SET sport = COALESCE(sport, 'tennis')`
+  await sql`UPDATE schedules SET title = COALESCE(title, court, '테니스 일정')`
+  await sql`UPDATE schedules SET detail_json = COALESCE(detail_json, '{}'::jsonb)`
   initialized = true
 }
 

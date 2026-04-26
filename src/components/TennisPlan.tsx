@@ -1,15 +1,24 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 type UserName = '성호' | '윤희'
+type SportType = 'tennis' | 'golf' | 'running'
 
 type Schedule = {
   id: string
   date: string
+  sport?: SportType
+  title?: string
   start_time?: string
   end_time?: string
   court?: string
   note?: string
   match_id?: string
+  detail_json?: {
+    golfScore?: number
+    runningDistanceKm?: number
+    runningMinutes?: number
+    runningPace?: string
+  }
 }
 
 type SetScore = { sungho: number; yunhee: number }
@@ -30,6 +39,11 @@ type BookingSite = {
 }
 
 const HOURS = ['06', '07', '08', '09', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22'] as const
+const SPORT_OPTIONS: { value: SportType; label: string; icon: string }[] = [
+  { value: 'tennis', label: '테니스', icon: '🎾' },
+  { value: 'golf', label: '골프', icon: '⛳' },
+  { value: 'running', label: '러닝', icon: '🏃' },
+]
 
 function ds(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -79,6 +93,40 @@ function matchWinner(sets: SetScore[]): UserName | '무승부' | null {
   return a > b ? '성호' : b > a ? '윤희' : '무승부'
 }
 
+function sportValue(s?: Schedule): SportType {
+  return s?.sport ?? 'tennis'
+}
+
+function sportMeta(s?: Schedule) {
+  const sport = sportValue(s)
+  return SPORT_OPTIONS.find((v) => v.value === sport) ?? SPORT_OPTIONS[0]
+}
+
+function runningPace(distanceKm: number, minutes: number) {
+  if (!distanceKm || !minutes || distanceKm <= 0 || minutes <= 0) return ''
+  const paceMin = minutes / distanceKm
+  const m = Math.floor(paceMin)
+  const sec = Math.round((paceMin - m) * 60)
+  return `${m}:${String(sec).padStart(2, '0')}/km`
+}
+
+function scheduleSummary(s: Schedule) {
+  const sport = sportValue(s)
+  if (sport === 'golf') {
+    const score = s.detail_json?.golfScore
+    return score ? `스코어 ${score}타` : '골프 기록'
+  }
+  if (sport === 'running') {
+    const dist = s.detail_json?.runningDistanceKm
+    const pace = s.detail_json?.runningPace
+    if (dist && pace) return `${dist}km · ${pace}`
+    if (dist) return `${dist}km`
+    return '러닝 기록'
+  }
+  if (s.start_time || s.end_time) return `${s.start_time?.replace(':00', '시')} ~ ${s.end_time?.replace(':00', '시')}`
+  return '테니스 일정'
+}
+
 type DaySched = { court?: string; time?: string }
 type DayMatch = { label: string; winner: UserName | '무승부' | null }
 type CDay = { date: Date; cur: boolean; scheds: DaySched[]; matches: DayMatch[] }
@@ -95,7 +143,7 @@ function monthGrid(md: Date, scheds: Schedule[], matches: Match[]): CDay[] {
   for (let i = 0; i < 42; i++) {
     const c = new Date(st); c.setDate(st.getDate() + i)
     const d = ds(c)
-    const ss = (schedByDate.get(d) ?? []).map((s) => ({ court: s.court, time: s.start_time?.slice(0, 2) }))
+    const ss = (schedByDate.get(d) ?? []).map((s) => ({ court: s.title ?? s.court, time: s.start_time?.slice(0, 2) }))
     const mm = (matchByDate.get(d) ?? []).map((m) => ({ label: setScoreLabel(m.sets), winner: matchWinner(m.sets) }))
     days.push({ date: c, cur: c.getMonth() === mo, scheds: ss, matches: mm })
   }
@@ -119,11 +167,24 @@ export default function TennisPlan() {
   const [sel, setSel] = useState(() => ds(today))
   const [sitesOpen, setSitesOpen] = useState(false)
   const [viewMode, setViewMode] = useState<'calendar' | 'list'>('calendar')
+  const [sportFilter, setSportFilter] = useState<'all' | SportType>('all')
 
   type Panel = null | 'schedule' | 'match'
   const [panel, setPanel] = useState<Panel>(null)
 
-  const [sf, setSf] = useState({ id: '', date: '', startTime: '', endTime: '', court: '', note: '' })
+  const [sf, setSf] = useState({
+    id: '',
+    date: '',
+    sport: 'tennis' as SportType,
+    title: '',
+    startTime: '',
+    endTime: '',
+    court: '',
+    note: '',
+    golfScore: '',
+    runningDistanceKm: '',
+    runningMinutes: '',
+  })
   const [courtDd, setCourtDd] = useState(false)
 
   const [mSchedId, setMSchedId] = useState('')
@@ -182,14 +243,24 @@ export default function TennisPlan() {
     try { localStorage.setItem('tp-user', JSON.stringify(user)) } catch { /* */ }
   }, [user])
 
-  const grid = useMemo(() => monthGrid(month, schedules, matches), [month, schedules, matches])
+  const filteredSchedules = useMemo(
+    () => sportFilter === 'all' ? schedules : schedules.filter((s) => sportValue(s) === sportFilter),
+    [schedules, sportFilter],
+  )
+
+  const filteredMatches = useMemo(
+    () => sportFilter === 'all' || sportFilter === 'tennis' ? matches : [],
+    [matches, sportFilter],
+  )
+
+  const grid = useMemo(() => monthGrid(month, filteredSchedules, filteredMatches), [month, filteredSchedules, filteredMatches])
   const ml = `${month.getFullYear()}년 ${month.getMonth() + 1}월`
 
-  const daySch = useMemo(() => schedules.filter((s) => s.date === sel).sort((a, b) => (a.start_time || '').localeCompare(b.start_time || '')), [schedules, sel])
+  const daySch = useMemo(() => filteredSchedules.filter((s) => s.date === sel).sort((a, b) => (a.start_time || '').localeCompare(b.start_time || '')), [filteredSchedules, sel])
 
   const todayStr = useMemo(() => ds(today), [today])
-  const upcomingList = useMemo(() => schedules.filter((s) => s.date >= todayStr).sort((a, b) => a.date.localeCompare(b.date) || (a.start_time || '').localeCompare(b.start_time || '')), [schedules, todayStr])
-  const pastList = useMemo(() => schedules.filter((s) => s.date < todayStr).sort((a, b) => b.date.localeCompare(a.date) || (b.start_time || '').localeCompare(a.start_time || '')), [schedules, todayStr])
+  const upcomingList = useMemo(() => filteredSchedules.filter((s) => s.date >= todayStr).sort((a, b) => a.date.localeCompare(b.date) || (a.start_time || '').localeCompare(b.start_time || '')), [filteredSchedules, todayStr])
+  const pastList = useMemo(() => filteredSchedules.filter((s) => s.date < todayStr).sort((a, b) => b.date.localeCompare(a.date) || (b.start_time || '').localeCompare(a.start_time || '')), [filteredSchedules, todayStr])
 
   const matchForSchedule = useCallback((schedId: string) => matches.find((m) => m.schedule_id === schedId), [matches])
 
@@ -197,27 +268,48 @@ export default function TennisPlan() {
 
   // ─── 일정 CRUD ───
   const openSchedForm = (s?: Schedule) => {
+    const sport = sportValue(s)
     setSf({
       id: s?.id ?? '',
       date: s?.date ?? sel,
+      sport,
+      title: s?.title ?? (sport === 'tennis' ? '' : s?.court ?? ''),
       startTime: s?.start_time ?? '',
       endTime: s?.end_time ?? '',
       court: s?.court ?? '',
       note: s?.note ?? '',
+      golfScore: s?.detail_json?.golfScore ? String(s.detail_json.golfScore) : '',
+      runningDistanceKm: s?.detail_json?.runningDistanceKm ? String(s.detail_json.runningDistanceKm) : '',
+      runningMinutes: s?.detail_json?.runningMinutes ? String(s.detail_json.runningMinutes) : '',
     })
     setPanel('schedule')
   }
 
   const saveSched = async () => {
     const id = sf.id || gid()
+    const detail = {
+      golfScore: sf.golfScore ? Number(sf.golfScore) : undefined,
+      runningDistanceKm: sf.runningDistanceKm ? Number(sf.runningDistanceKm) : undefined,
+      runningMinutes: sf.runningMinutes ? Number(sf.runningMinutes) : undefined,
+    }
+    const pace = detail.runningDistanceKm && detail.runningMinutes
+      ? runningPace(detail.runningDistanceKm, detail.runningMinutes)
+      : undefined
     const row = {
       id,
       date: sf.date || sel,
-      start_time: sf.startTime || null,
-      end_time: sf.endTime || null,
+      sport: sf.sport,
+      title: sf.title || (sf.sport === 'tennis' ? null : sf.court || null),
+      start_time: sf.sport === 'tennis' ? (sf.startTime || null) : null,
+      end_time: sf.sport === 'tennis' ? (sf.endTime || null) : null,
       court: sf.court || null,
       note: sf.note || null,
       match_id: sf.id ? schedules.find((s) => s.id === sf.id)?.match_id ?? null : null,
+      detail_json: sf.sport === 'golf'
+        ? { golfScore: detail.golfScore }
+        : sf.sport === 'running'
+          ? { runningDistanceKm: detail.runningDistanceKm, runningMinutes: detail.runningMinutes, runningPace: pace }
+          : {},
     }
     const result = await apiData<{ row: Schedule }>({ entity: 'schedules', action: 'upsert', payload: row })
     const data = result.row
@@ -394,6 +486,19 @@ export default function TennisPlan() {
           </div>
         </div>
 
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          {([{ value: 'all', label: '전체', icon: '📋' }, ...SPORT_OPTIONS] as const).map((f) => (
+            <button
+              key={f.value}
+              type="button"
+              onClick={() => setSportFilter(f.value)}
+              className={`rounded-full px-3 py-1.5 text-xs font-bold ${sportFilter === f.value ? 'bg-emerald-500 text-white' : 'bg-white text-slate-500 ring-1 ring-slate-200'}`}
+            >
+              {f.icon} {f.label}
+            </button>
+          ))}
+        </div>
+
         {/* ─── 캘린더 ─── */}
         {viewMode === 'calendar' && (
         <section className="mb-4 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
@@ -431,7 +536,7 @@ export default function TennisPlan() {
                     </span>
                     {day.cur && hasSched && (
                       <span className="mt-0.5 w-full truncate text-center text-[8px] font-semibold leading-tight text-emerald-700 sm:text-[9px]">
-                        {firstSched.time ? `${firstSched.time}시` : ''}{firstSched.court ? ` ${firstSched.court.slice(0, 3)}` : ''}
+                        {firstSched.time ? `${firstSched.time}시` : ''}{firstSched.court ? ` ${firstSched.court.slice(0, 3)}` : ' 일정'}
                         {day.scheds.length > 1 ? ` +${day.scheds.length - 1}` : ''}
                       </span>
                     )}
@@ -478,17 +583,18 @@ export default function TennisPlan() {
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="text-sm font-bold text-slate-900">{s.court || '장소 미정'}</span>
+                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">
+                            {sportMeta(s).icon} {sportMeta(s).label}
+                          </span>
+                          <span className="text-sm font-bold text-slate-900">{s.title || s.court || '일정'}</span>
                           {s.date === todayStr && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">오늘</span>}
                         </div>
                         <div className="mt-0.5 flex items-center gap-2 text-[11px] text-slate-500">
                           <span>{fmtDate(s.date)}</span>
-                          {(s.start_time || s.end_time) && (
-                            <span>{s.start_time?.replace(':00', '시')} ~ {s.end_time?.replace(':00', '시')}</span>
-                          )}
+                          <span>{scheduleSummary(s)}</span>
                         </div>
                       </div>
-                      {m && (
+                      {sportValue(s) === 'tennis' && m && (
                         <div className="flex flex-col items-end gap-0.5">
                           <span className="text-xs font-bold text-slate-700">{setScoreLabel(m.sets)}</span>
                           {w && w !== '무승부' && (
@@ -527,16 +633,17 @@ export default function TennisPlan() {
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="text-sm font-bold text-slate-700">{s.court || '장소 미정'}</span>
+                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">
+                            {sportMeta(s).icon} {sportMeta(s).label}
+                          </span>
+                          <span className="text-sm font-bold text-slate-700">{s.title || s.court || '일정'}</span>
                         </div>
                         <div className="mt-0.5 flex items-center gap-2 text-[11px] text-slate-400">
                           <span>{fmtDate(s.date)}</span>
-                          {(s.start_time || s.end_time) && (
-                            <span>{s.start_time?.replace(':00', '시')} ~ {s.end_time?.replace(':00', '시')}</span>
-                          )}
+                          <span>{scheduleSummary(s)}</span>
                         </div>
                       </div>
-                      {m ? (
+                      {sportValue(s) === 'tennis' && m ? (
                         <div className="flex flex-col items-end gap-0.5">
                           <span className="text-xs font-bold text-slate-600">{setScoreLabel(m.sets)}</span>
                           {w && w !== '무승부' && (
@@ -546,8 +653,10 @@ export default function TennisPlan() {
                           )}
                           {w === '무승부' && <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-600">무승부</span>}
                         </div>
-                      ) : (
+                      ) : sportValue(s) === 'tennis' ? (
                         <span className="text-[11px] text-slate-300">결과 없음</span>
+                      ) : (
+                        <span className="text-[11px] text-slate-400">{scheduleSummary(s)}</span>
                       )}
                     </button>
                   )
@@ -587,12 +696,13 @@ export default function TennisPlan() {
                     <div className="flex items-start justify-between">
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="text-sm font-bold text-slate-900">{s.court || '장소 미정'}</span>
-                          {(s.start_time || s.end_time) && (
-                            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
-                              {s.start_time?.replace(':00', '시')} ~ {s.end_time?.replace(':00', '시')}
-                            </span>
-                          )}
+                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">
+                            {sportMeta(s).icon} {sportMeta(s).label}
+                          </span>
+                          <span className="text-sm font-bold text-slate-900">{s.title || s.court || '일정'}</span>
+                          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                            {scheduleSummary(s)}
+                          </span>
                         </div>
                         {s.note && <p className="mt-1 text-xs text-slate-500">{s.note}</p>}
                       </div>
@@ -602,7 +712,7 @@ export default function TennisPlan() {
                       </div>
                     </div>
                     <div className="mt-2 border-t border-slate-100 pt-2">
-                      {m ? (
+                      {sportValue(s) === 'tennis' && m ? (
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-bold text-slate-900">{setScoreLabel(m.sets)}</span>
@@ -618,13 +728,15 @@ export default function TennisPlan() {
                             <button onClick={() => deleteMatchResult(m.id, s.id)} className="rounded-lg px-2 py-1 text-red-400 active:bg-red-50">삭제</button>
                           </div>
                         </div>
-                      ) : (
+                      ) : sportValue(s) === 'tennis' ? (
                         <button onClick={() => openMatchForm(s.id)}
                           className="w-full rounded-xl border border-dashed border-sky-300 bg-sky-50/50 py-2.5 text-xs font-semibold text-sky-600 active:bg-sky-100">
                           결과 기록하기
                         </button>
+                      ) : (
+                        <p className="text-xs text-slate-500">기록: {scheduleSummary(s)}</p>
                       )}
-                      {(m?.comment_sungho || m?.comment_yunhee) && (
+                      {sportValue(s) === 'tennis' && (m?.comment_sungho || m?.comment_yunhee) && (
                         <div className="mt-1.5 space-y-0.5">
                           {m.comment_yunhee && <p className="text-[11px] text-slate-500"><span className="font-semibold text-sky-600">윤희:</span> {m.comment_yunhee}</p>}
                           {m.comment_sungho && <p className="text-[11px] text-slate-500"><span className="font-semibold text-emerald-600">성호:</span> {m.comment_sungho}</p>}
@@ -641,33 +753,51 @@ export default function TennisPlan() {
           {panel === 'schedule' && (
             <div className="space-y-3">
               <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">종목</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {SPORT_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setSf((p) => ({ ...p, sport: opt.value }))}
+                      className={`rounded-xl border px-2 py-2 text-xs font-bold ${sf.sport === opt.value ? 'border-emerald-400 bg-emerald-50 text-emerald-700' : 'border-slate-200 text-slate-500'}`}
+                    >
+                      {opt.icon} {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
                 <label className="mb-1 block text-xs font-medium text-slate-600">날짜</label>
                 <input type="date" value={sf.date} onChange={(e) => setSf((p) => ({ ...p, date: e.target.value }))}
                   className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400" />
               </div>
 
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">시간</label>
-                <div className="flex items-center gap-2">
-                  <select value={sf.startTime ? sf.startTime.slice(0, 2) : ''}
-                    onChange={(e) => setSf((p) => ({ ...p, startTime: e.target.value ? `${e.target.value}:00` : '' }))}
-                    className="flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400">
-                    <option value="">시작</option>
-                    {HOURS.map((h) => <option key={h} value={h}>{h}시</option>)}
-                  </select>
-                  <span className="text-slate-400">~</span>
-                  <select value={sf.endTime ? sf.endTime.slice(0, 2) : ''}
-                    onChange={(e) => setSf((p) => ({ ...p, endTime: e.target.value ? `${e.target.value}:00` : '' }))}
-                    className="flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400">
-                    <option value="">종료</option>
-                    {HOURS.map((h) => <option key={h} value={h}>{h}시</option>)}
-                  </select>
+              {sf.sport === 'tennis' && (
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-600">시간</label>
+                  <div className="flex items-center gap-2">
+                    <select value={sf.startTime ? sf.startTime.slice(0, 2) : ''}
+                      onChange={(e) => setSf((p) => ({ ...p, startTime: e.target.value ? `${e.target.value}:00` : '' }))}
+                      className="flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400">
+                      <option value="">시작</option>
+                      {HOURS.map((h) => <option key={h} value={h}>{h}시</option>)}
+                    </select>
+                    <span className="text-slate-400">~</span>
+                    <select value={sf.endTime ? sf.endTime.slice(0, 2) : ''}
+                      onChange={(e) => setSf((p) => ({ ...p, endTime: e.target.value ? `${e.target.value}:00` : '' }))}
+                      className="flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400">
+                      <option value="">종료</option>
+                      {HOURS.map((h) => <option key={h} value={h}>{h}시</option>)}
+                    </select>
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="relative">
-                <label className="mb-1 block text-xs font-medium text-slate-600">장소</label>
-                <input type="text" placeholder="장소명 입력 또는 선택" value={sf.court}
+                <label className="mb-1 block text-xs font-medium text-slate-600">{sf.sport === 'golf' ? '코스/장소' : '장소'}</label>
+                <input type="text" placeholder={sf.sport === 'running' ? '러닝 코스/장소' : '장소명 입력 또는 선택'} value={sf.court}
                   onChange={(e) => setSf((p) => ({ ...p, court: e.target.value }))}
                   onFocus={() => setCourtDd(true)}
                   className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400" />
@@ -686,6 +816,48 @@ export default function TennisPlan() {
                   </ul>
                 )}
               </div>
+
+              {sf.sport === 'golf' && (
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-600">스코어(타수)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    placeholder="예: 92"
+                    value={sf.golfScore}
+                    onChange={(e) => setSf((p) => ({ ...p, golfScore: e.target.value }))}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
+                  />
+                </div>
+              )}
+
+              {sf.sport === 'running' && (
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-600">거리(km)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.1"
+                      placeholder="5"
+                      value={sf.runningDistanceKm}
+                      onChange={(e) => setSf((p) => ({ ...p, runningDistanceKm: e.target.value }))}
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-600">시간(분)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      placeholder="30"
+                      value={sf.runningMinutes}
+                      onChange={(e) => setSf((p) => ({ ...p, runningMinutes: e.target.value }))}
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
+                    />
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="mb-1 block text-xs font-medium text-slate-600">메모</label>

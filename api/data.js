@@ -27,15 +27,18 @@ export default async function handler(req, res) {
     if (entity === 'schedules' && action === 'upsert') {
       const row = payload
       const rows = await sql`
-        INSERT INTO schedules (id, date, start_time, end_time, court, note, match_id)
-        VALUES (${row.id}, ${row.date}, ${row.start_time ?? null}, ${row.end_time ?? null}, ${row.court ?? null}, ${row.note ?? null}, ${row.match_id ?? null})
+        INSERT INTO schedules (id, date, start_time, end_time, court, note, match_id, sport, title, detail_json)
+        VALUES (${row.id}, ${row.date}, ${row.start_time ?? null}, ${row.end_time ?? null}, ${row.court ?? null}, ${row.note ?? null}, ${row.match_id ?? null}, ${row.sport ?? 'tennis'}, ${row.title ?? null}, ${JSON.stringify(row.detail_json ?? {})}::jsonb)
         ON CONFLICT (id) DO UPDATE SET
           date = EXCLUDED.date,
           start_time = EXCLUDED.start_time,
           end_time = EXCLUDED.end_time,
           court = EXCLUDED.court,
           note = EXCLUDED.note,
-          match_id = EXCLUDED.match_id
+          match_id = EXCLUDED.match_id,
+          sport = EXCLUDED.sport,
+          title = EXCLUDED.title,
+          detail_json = EXCLUDED.detail_json
         RETURNING *
       `
       return json(res, 200, { row: rows[0] })
