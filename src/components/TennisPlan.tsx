@@ -844,7 +844,7 @@ export default function TennisPlan() {
                 <label className="mb-1 block text-xs font-medium text-slate-600">{sf.sport === 'golf' ? '코스/장소' : '장소'}</label>
                 <input type="text" placeholder={sf.sport === 'running' ? '러닝 코스/장소' : '장소명 입력 또는 선택'} value={sf.court}
                   onChange={(e) => setSf((p) => ({ ...p, court: e.target.value }))}
-                  onFocus={() => setShowCourtSuggestions(sf.sport === 'tennis')}
+                  onFocus={() => setShowCourtSuggestions(true)}
                   onBlur={() => setTimeout(() => setShowCourtSuggestions(false), 120)}
                   onKeyDown={(e) => { if (e.key === 'Escape') setShowCourtSuggestions(false) }}
                   className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400" />
