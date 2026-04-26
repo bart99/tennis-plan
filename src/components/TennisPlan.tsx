@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 type UserName = '성호' | '윤희'
 type SportType = 'tennis' | 'golf' | 'running'
@@ -193,6 +193,7 @@ export default function TennisPlan() {
     runningMinutes: '',
   })
   const [showCourtSuggestions, setShowCourtSuggestions] = useState(false)
+  const courtBoxRef = useRef<HTMLDivElement | null>(null)
 
   const [mSchedId, setMSchedId] = useState('')
   const [mEditId, setMEditId] = useState<string | null>(null)
@@ -216,6 +217,22 @@ export default function TennisPlan() {
     }
     window.addEventListener('beforeinstallprompt', handler)
     return () => window.removeEventListener('beforeinstallprompt', handler)
+  }, [])
+
+  useEffect(() => {
+    const closeOnOutsideTouch = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node | null
+      if (!target) return
+      if (courtBoxRef.current && !courtBoxRef.current.contains(target)) {
+        setShowCourtSuggestions(false)
+      }
+    }
+    document.addEventListener('mousedown', closeOnOutsideTouch)
+    document.addEventListener('touchstart', closeOnOutsideTouch)
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutsideTouch)
+      document.removeEventListener('touchstart', closeOnOutsideTouch)
+    }
   }, [])
 
   const handleInstall = async () => {
@@ -806,7 +823,7 @@ export default function TennisPlan() {
                 </div>
               )}
 
-              <div className="relative">
+              <div ref={courtBoxRef} className="relative">
                 <label className="mb-1 block text-xs font-medium text-slate-600">{sf.sport === 'golf' ? '코스/장소' : '장소'}</label>
                 <input type="text" placeholder={sf.sport === 'running' ? '러닝 코스/장소' : '장소명 입력 또는 선택'} value={sf.court}
                   onChange={(e) => setSf((p) => ({ ...p, court: e.target.value }))}
