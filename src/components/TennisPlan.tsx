@@ -220,7 +220,14 @@ export default function TennisPlan() {
   }, [])
 
   useEffect(() => {
-    const closeOnOutsideTouch = (event: MouseEvent | TouchEvent) => {
+    const closeOnOutsideTouch = (event: MouseEvent | TouchEvent | PointerEvent) => {
+      const target = event.target as Node | null
+      if (!target) return
+      if (courtBoxRef.current && !courtBoxRef.current.contains(target)) {
+        setShowCourtSuggestions(false)
+      }
+    }
+    const closeOnFocusMove = (event: FocusEvent) => {
       const target = event.target as Node | null
       if (!target) return
       if (courtBoxRef.current && !courtBoxRef.current.contains(target)) {
@@ -229,9 +236,13 @@ export default function TennisPlan() {
     }
     document.addEventListener('mousedown', closeOnOutsideTouch)
     document.addEventListener('touchstart', closeOnOutsideTouch)
+    document.addEventListener('pointerdown', closeOnOutsideTouch)
+    document.addEventListener('focusin', closeOnFocusMove)
     return () => {
       document.removeEventListener('mousedown', closeOnOutsideTouch)
       document.removeEventListener('touchstart', closeOnOutsideTouch)
+      document.removeEventListener('pointerdown', closeOnOutsideTouch)
+      document.removeEventListener('focusin', closeOnFocusMove)
     }
   }, [])
 
@@ -829,6 +840,7 @@ export default function TennisPlan() {
                   onChange={(e) => setSf((p) => ({ ...p, court: e.target.value }))}
                   onFocus={() => setShowCourtSuggestions(sf.sport === 'tennis')}
                   onBlur={() => setTimeout(() => setShowCourtSuggestions(false), 120)}
+                  onKeyDown={(e) => { if (e.key === 'Escape') setShowCourtSuggestions(false) }}
                   className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400" />
                 <p className="mt-1 text-[11px] text-slate-400">
                   직접 입력 기본, 아래 목록은 선택한 종목 기준 빠른 선택용
