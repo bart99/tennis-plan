@@ -48,6 +48,12 @@ type BookingSite = {
   course_name?: string
   side?: 'OUT' | 'IN'
 }
+type GolfCourseDraft = {
+  key: string
+  courseName: string
+  side: 'OUT' | 'IN'
+  pars: number[]
+}
 
 const HOURS = ['06', '07', '08', '09', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22'] as const
 const SPORT_OPTIONS: { value: SportType; label: string; icon: string }[] = [
@@ -156,6 +162,19 @@ function defaultGolfHoles(): GolfHole[] {
 
 function defaultGolfPars() {
   return defaultGolfHoles().map((h) => h.par)
+}
+
+function defaultNinePars() {
+  return defaultGolfPars().slice(0, 9)
+}
+
+function createGolfCourseDraft(): GolfCourseDraft {
+  return {
+    key: gid(),
+    courseName: '',
+    side: 'OUT',
+    pars: defaultNinePars(),
+  }
 }
 
 function golfTotals(holes: GolfHole[]) {
@@ -275,14 +294,13 @@ export default function TennisPlan() {
   const [mCommentS, setMCommentS] = useState('')
   const [mCommentY, setMCommentY] = useState('')
 
-  const [siteForm, setSiteForm] = useState<{ name: string; url: string; sport: SportType | 'all'; clubName: string; courseName: string; side: 'OUT' | 'IN' }>({
+  const [siteForm, setSiteForm] = useState<{ name: string; url: string; sport: SportType | 'all'; clubName: string }>({
     name: '',
     url: '',
     sport: 'tennis',
     clubName: '',
-    courseName: '',
-    side: 'OUT',
   })
+  const [siteCourseDrafts, setSiteCourseDrafts] = useState<GolfCourseDraft[]>([createGolfCourseDraft()])
 
   const [dbError, setDbError] = useState('')
 
@@ -642,23 +660,79 @@ export default function TennisPlan() {
   }
 
   // ─── 사이트 CRUD ───
+  const tryApplySiteTemplate = (draftKey: string, clubNameRaw: string, courseNameRaw: string, side: 'OUT' | 'IN') => {
+    const key = golfTemplateKey(clubNameRaw, courseNameRaw, side)
+    const template = golfTemplates[key]
+    if (template?.length === 9) {
+      setSiteCourseDrafts((prev) => prev.map((draft) => draft.key === draftKey
+        ? { ...draft, pars: template.map((h) => h.par || 4) }
+        : draft))
+    }
+  }
+
+  const addSiteCourseDraft = () => {
+    setSiteCourseDrafts((prev) => [...prev, createGolfCourseDraft()])
+  }
+
+  const deleteSiteCourseDraft = (draftKey: string) => {
+    setSiteCourseDrafts((prev) => prev.length > 1 ? prev.filter((d) => d.key !== draftKey) : prev)
+  }
+
   const addSite = async () => {
-    const fallbackName = siteForm.sport === 'golf' ? siteForm.courseName.trim() : ''
-    const displayName = siteForm.name.trim() || fallbackName
+    if (siteForm.sport === 'golf') {
+      const clubName = siteForm.clubName.trim()
+      if (!clubName) return
+      const drafts = siteCourseDrafts.filter((d) => d.courseName.trim())
+      if (drafts.length === 0) return
+
+      const createdRows = await Promise.all(drafts.map(async (draft) => {
+        const courseName = draft.courseName.trim()
+        const templateHoles: GolfHole[] = draft.pars.map((par, idx) => ({ hole: idx + 1, par: par || 4, strokes: 0 }))
+        const row = {
+          id: gid(),
+          name: courseName,
+          url: siteForm.url.trim() || null,
+          sport: 'golf' as const,
+          club_name: clubName,
+          course_name: courseName,
+          side: draft.side,
+        }
+        const { row: data } = await apiData<{ row: BookingSite }>({ entity: 'booking_sites', action: 'upsert', payload: row })
+        await apiData({
+          entity: 'golf_templates',
+          action: 'upsert',
+          payload: { club_name: clubName, course_name: courseName, side: draft.side, holes: templateHoles },
+        })
+        return data
+      }))
+      setSites((p) => [...p, ...createdRows.filter(Boolean)])
+      setGolfTemplates((prev) => {
+        const next = { ...prev }
+        for (const draft of drafts) {
+          const courseName = draft.courseName.trim()
+          next[golfTemplateKey(clubName, courseName, draft.side)] = draft.pars.map((par, idx) => ({ hole: idx + 1, par: par || 4, strokes: 0 }))
+        }
+        return next
+      })
+      setSiteForm((p) => ({ ...p, name: '', url: '' }))
+      setSiteCourseDrafts([createGolfCourseDraft()])
+      return
+    }
+
+    const displayName = siteForm.name.trim()
     if (!displayName) return
-    if (siteForm.sport === 'golf' && (!siteForm.clubName.trim() || !siteForm.courseName.trim())) return
     const row = {
       id: gid(),
       name: displayName,
       url: siteForm.url.trim() || null,
       sport: siteForm.sport,
-      club_name: siteForm.sport === 'golf' ? (siteForm.clubName.trim() || null) : null,
-      course_name: siteForm.sport === 'golf' ? (siteForm.courseName.trim() || null) : null,
-      side: siteForm.sport === 'golf' ? siteForm.side : null,
+      club_name: null,
+      course_name: null,
+      side: null,
     }
     const { row: data } = await apiData<{ row: BookingSite }>({ entity: 'booking_sites', action: 'upsert', payload: row })
     if (data) setSites((p) => [...p, data])
-    setSiteForm((p) => ({ ...p, name: '', url: '', courseName: '' }))
+    setSiteForm((p) => ({ ...p, name: '', url: '' }))
   }
 
   const delSite = async (id: string) => {
@@ -755,28 +829,114 @@ export default function TennisPlan() {
                 </div>
               )}
               <div className="space-y-2 text-xs">
-                <select value={siteForm.sport} onChange={(e) => setSiteForm((p) => ({ ...p, sport: e.target.value as SportType | 'all', clubName: '', courseName: '', side: 'OUT' }))}
+                <select value={siteForm.sport} onChange={(e) => {
+                  setSiteForm((p) => ({ ...p, sport: e.target.value as SportType | 'all', clubName: '' }))
+                  setSiteCourseDrafts([createGolfCourseDraft()])
+                }}
                   className="w-full rounded-lg border border-slate-200 px-2.5 py-2 outline-none focus:border-emerald-400">
                   {SITE_SPORT_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                 </select>
                 {siteForm.sport === 'golf' && (
-                  <div className="grid grid-cols-3 gap-2">
-                    <input type="text" placeholder="골프장명" value={siteForm.clubName} onChange={(e) => setSiteForm((p) => ({ ...p, clubName: e.target.value }))}
-                      className="min-w-0 rounded-lg border border-slate-200 px-2.5 py-2 outline-none focus:border-emerald-400" />
-                    <input type="text" placeholder="코스명" value={siteForm.courseName} onChange={(e) => setSiteForm((p) => ({ ...p, courseName: e.target.value, name: e.target.value || p.name }))}
-                      className="min-w-0 rounded-lg border border-slate-200 px-2.5 py-2 outline-none focus:border-emerald-400" />
-                    <select value={siteForm.side} onChange={(e) => setSiteForm((p) => ({ ...p, side: e.target.value as 'OUT' | 'IN' }))}
-                      className="min-w-0 rounded-lg border border-slate-200 px-2.5 py-2 outline-none focus:border-emerald-400">
-                      {NINE_SIDES.map((side) => <option key={side} value={side}>{side}</option>)}
-                    </select>
+                  <div className="space-y-2">
+                    <input
+                      type="text"
+                      placeholder="골프장명"
+                      value={siteForm.clubName}
+                      onChange={(e) => setSiteForm((p) => ({ ...p, clubName: e.target.value }))}
+                      className="w-full rounded-lg border border-slate-200 px-2.5 py-2 outline-none focus:border-emerald-400"
+                    />
+                    {siteCourseDrafts.map((draft, draftIdx) => (
+                      <div key={draft.key} className="space-y-2 rounded-lg border border-slate-200 p-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-semibold text-slate-500">코스 세트 {draftIdx + 1}</span>
+                          {siteCourseDrafts.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => deleteSiteCourseDraft(draft.key)}
+                              className="rounded px-2 py-1 text-[10px] font-semibold text-red-500 hover:bg-red-50"
+                            >
+                              삭제
+                            </button>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-3 gap-2">
+                          <input
+                            type="text"
+                            placeholder="코스명"
+                            value={draft.courseName}
+                            onChange={(e) => setSiteCourseDrafts((prev) => prev.map((d) => d.key === draft.key ? { ...d, courseName: e.target.value } : d))}
+                            onBlur={() => tryApplySiteTemplate(draft.key, siteForm.clubName, draft.courseName, draft.side)}
+                            className="col-span-2 min-w-0 rounded-lg border border-slate-200 px-2.5 py-2 outline-none focus:border-emerald-400"
+                          />
+                          <select
+                            value={draft.side}
+                            onChange={(e) => {
+                              const side = e.target.value as 'OUT' | 'IN'
+                              setSiteCourseDrafts((prev) => prev.map((d) => d.key === draft.key ? { ...d, side } : d))
+                              tryApplySiteTemplate(draft.key, siteForm.clubName, draft.courseName, side)
+                            }}
+                            className="min-w-0 rounded-lg border border-slate-200 px-2.5 py-2 outline-none focus:border-emerald-400"
+                          >
+                            {NINE_SIDES.map((side) => <option key={side} value={side}>{side}</option>)}
+                          </select>
+                        </div>
+                        <div className="overflow-x-auto rounded-lg border border-slate-200 p-2">
+                          <p className="mb-1 text-[11px] font-semibold text-slate-600">홀별 기준타수(9홀)</p>
+                          <table className="w-[420px] text-[10px] text-slate-600">
+                            <thead>
+                              <tr>
+                                <th className="px-1 py-1 text-left">홀</th>
+                                {Array.from({ length: 9 }, (_, i) => <th key={i} className="px-1 py-1 text-center">{i + 1}</th>)}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              <tr>
+                                <td className="px-1 py-1 font-semibold">Par</td>
+                                {draft.pars.map((par, idx) => (
+                                  <td key={`${draft.key}-par-${idx}`} className="px-1 py-1 text-center">
+                                    <input
+                                      type="number"
+                                      min={3}
+                                      max={6}
+                                      value={par}
+                                      onChange={(e) => setSiteCourseDrafts((prev) => prev.map((d) => d.key === draft.key
+                                        ? { ...d, pars: d.pars.map((v, i) => i === idx ? (Number(e.target.value) || 0) : v) }
+                                        : d))}
+                                      className="w-9 rounded border border-slate-200 px-1 py-0.5 text-center"
+                                    />
+                                  </td>
+                                ))}
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={addSiteCourseDraft}
+                      className="w-full rounded-lg border border-emerald-300 bg-emerald-50 py-2 text-xs font-bold text-emerald-700 active:bg-emerald-100"
+                    >
+                      + 코스 세트 추가
+                    </button>
                   </div>
                 )}
-                <div className="flex gap-2">
-                  <input type="text" placeholder={siteForm.sport === 'golf' ? '표시명(선택)' : '장소명'} value={siteForm.name} onChange={(e) => setSiteForm((p) => ({ ...p, name: e.target.value }))}
-                    className="w-1/3 min-w-0 rounded-lg border border-slate-200 px-2.5 py-2 outline-none focus:border-emerald-400" />
-                  <input type="url" placeholder="URL (선택)" value={siteForm.url} onChange={(e) => setSiteForm((p) => ({ ...p, url: e.target.value }))}
-                    className="min-w-0 flex-1 rounded-lg border border-slate-200 px-2.5 py-2 outline-none focus:border-emerald-400" />
-                </div>
+                {siteForm.sport === 'golf' ? (
+                  <input
+                    type="url"
+                    placeholder="골프장 URL (선택)"
+                    value={siteForm.url}
+                    onChange={(e) => setSiteForm((p) => ({ ...p, url: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 px-2.5 py-2 outline-none focus:border-emerald-400"
+                  />
+                ) : (
+                  <div className="flex gap-2">
+                    <input type="text" placeholder="장소명" value={siteForm.name} onChange={(e) => setSiteForm((p) => ({ ...p, name: e.target.value }))}
+                      className="w-1/3 min-w-0 rounded-lg border border-slate-200 px-2.5 py-2 outline-none focus:border-emerald-400" />
+                    <input type="url" placeholder="URL (선택)" value={siteForm.url} onChange={(e) => setSiteForm((p) => ({ ...p, url: e.target.value }))}
+                      className="min-w-0 flex-1 rounded-lg border border-slate-200 px-2.5 py-2 outline-none focus:border-emerald-400" />
+                  </div>
+                )}
                 <button onClick={addSite} className="w-full rounded-lg bg-emerald-500 py-2 text-xs font-bold text-white active:bg-emerald-600">추가</button>
               </div>
             </div>
