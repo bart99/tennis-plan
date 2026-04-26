@@ -10,12 +10,13 @@ export default async function handler(req, res) {
     await ensureSchema()
 
     if (req.method === 'GET') {
-      const [schedules, matches, bookingSites] = await Promise.all([
+      const [schedules, matches, bookingSites, golfTemplates] = await Promise.all([
         sql`SELECT * FROM schedules ORDER BY date ASC`,
         sql`SELECT * FROM matches ORDER BY date ASC`,
         sql`SELECT * FROM booking_sites ORDER BY name ASC`,
+        sql`SELECT * FROM golf_course_templates ORDER BY course_name ASC`,
       ])
-      return json(res, 200, { schedules, matches, bookingSites })
+      return json(res, 200, { schedules, matches, bookingSites, golfTemplates })
     }
 
     if (req.method !== 'POST') {
@@ -97,6 +98,19 @@ export default async function handler(req, res) {
       const { id } = payload
       await sql`DELETE FROM booking_sites WHERE id = ${id}`
       return json(res, 200, { ok: true })
+    }
+
+    if (entity === 'golf_templates' && action === 'upsert') {
+      const row = payload
+      const rows = await sql`
+        INSERT INTO golf_course_templates (course_name, holes, updated_at)
+        VALUES (${row.course_name}, ${JSON.stringify(row.holes ?? [])}::jsonb, NOW())
+        ON CONFLICT (course_name) DO UPDATE SET
+          holes = EXCLUDED.holes,
+          updated_at = NOW()
+        RETURNING *
+      `
+      return json(res, 200, { row: rows[0] })
     }
 
     return json(res, 400, { error: 'Invalid action' })

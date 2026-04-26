@@ -41,6 +41,13 @@ export async function ensureSchema() {
       sport TEXT
     )
   `
+  await sql`
+    CREATE TABLE IF NOT EXISTS golf_course_templates (
+      course_name TEXT PRIMARY KEY,
+      holes JSONB NOT NULL DEFAULT '[]'::jsonb,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `
   await sql`ALTER TABLE schedules ADD COLUMN IF NOT EXISTS sport TEXT`
   await sql`ALTER TABLE schedules ADD COLUMN IF NOT EXISTS title TEXT`
   await sql`ALTER TABLE schedules ADD COLUMN IF NOT EXISTS detail_json JSONB`

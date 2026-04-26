@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 type UserName = '성호' | '윤희'
 type SportType = 'tennis' | 'golf' | 'running'
 type GolfHole = { hole: number; par: number; strokes: number }
+type GolfTemplate = { course_name: string; holes: GolfHole[] }
 
 type Schedule = {
   id: string
@@ -128,6 +129,10 @@ function formatGolfTime(v?: string) {
   return `${hh}:${mm}`
 }
 
+function normalizeCourseName(v?: string) {
+  return (v ?? '').trim().replace(/\s+/g, ' ').toLowerCase()
+}
+
 function defaultGolfHoles(): GolfHole[] {
   return Array.from({ length: 18 }, (_, i) => ({ hole: i + 1, par: 4, strokes: 0 }))
 }
@@ -212,6 +217,8 @@ export default function TennisPlan() {
   const [panel, setPanel] = useState<Panel>(null)
   const [gSchedId, setGSchedId] = useState('')
   const [gHoles, setGHoles] = useState<GolfHole[]>(defaultGolfHoles())
+  const [gCourseName, setGCourseName] = useState('')
+  const [golfTemplates, setGolfTemplates] = useState<Record<string, GolfHole[]>>({})
 
   const [sf, setSf] = useState({
     id: '',
@@ -294,10 +301,16 @@ export default function TennisPlan() {
   useEffect(() => {
     async function load() {
       try {
-        const data = await apiData<{ schedules: Schedule[]; matches: Match[]; bookingSites: BookingSite[] }>()
+        const data = await apiData<{ schedules: Schedule[]; matches: Match[]; bookingSites: BookingSite[]; golfTemplates?: GolfTemplate[] }>()
         setSchedules(data.schedules ?? [])
         setMatches(data.matches ?? [])
         setSites(data.bookingSites ?? [])
+        const templateMap: Record<string, GolfHole[]> = {}
+        for (const t of data.golfTemplates ?? []) {
+          const key = normalizeCourseName(t.course_name)
+          if (key && Array.isArray(t.holes) && t.holes.length === 18) templateMap[key] = t.holes
+        }
+        setGolfTemplates(templateMap)
       } catch (e) {
         console.error('[api]', e)
         setDbError(e instanceof Error ? e.message : 'DB 연결 실패')
@@ -374,7 +387,10 @@ export default function TennisPlan() {
       note: sf.note || null,
       match_id: sf.id ? schedules.find((s) => s.id === sf.id)?.match_id ?? null : null,
       detail_json: sf.sport === 'golf'
-        ? { golfTeeOff: sf.golfTeeOff || undefined, golfScore: schedules.find((s) => s.id === sf.id)?.detail_json?.golfScore }
+        ? {
+            ...(schedules.find((s) => s.id === sf.id)?.detail_json ?? {}),
+            golfTeeOff: sf.golfTeeOff || undefined,
+          }
         : sf.sport === 'running'
           ? { runningDistanceKm: detail.runningDistanceKm, runningMinutes: detail.runningMinutes, runningPace: pace }
           : {},
@@ -393,8 +409,12 @@ export default function TennisPlan() {
   }
 
   const openGolfResultForm = (s: Schedule) => {
+    const courseName = (s.court || s.title || '').trim()
+    const key = normalizeCourseName(courseName)
+    const templateHoles = key ? golfTemplates[key] : undefined
     setGSchedId(s.id)
-    setGHoles(s.detail_json?.golfHoles?.length === 18 ? s.detail_json.golfHoles : defaultGolfHoles())
+    setGCourseName(courseName)
+    setGHoles(s.detail_json?.golfHoles?.length === 18 ? s.detail_json.golfHoles : (templateHoles ?? defaultGolfHoles()))
     setPanel('golfResult')
   }
 
@@ -420,6 +440,16 @@ export default function TennisPlan() {
     }
     const result = await apiData<{ row: Schedule }>({ entity: 'schedules', action: 'upsert', payload: row })
     setSchedules((p) => p.map((s) => s.id === gSchedId ? result.row : s))
+
+    const normalizedCourse = normalizeCourseName(gCourseName)
+    if (normalizedCourse) {
+      await apiData<{ row: GolfTemplate }>({
+        entity: 'golf_templates',
+        action: 'upsert',
+        payload: { course_name: gCourseName.trim(), holes: gHoles },
+      })
+      setGolfTemplates((prev) => ({ ...prev, [normalizedCourse]: gHoles }))
+    }
     setPanel(null)
   }
 
@@ -1074,6 +1104,9 @@ export default function TennisPlan() {
               <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
                 OUT {golfTotals(gHoles).outStrokes} / IN {golfTotals(gHoles).inStrokes} / TOTAL {golfTotals(gHoles).totalStrokes} / 오버파 {golfTotals(gHoles).overPar > 0 ? `+${golfTotals(gHoles).overPar}` : golfTotals(gHoles).overPar}
               </div>
+              {!!gCourseName.trim() && (
+                <p className="text-[11px] text-slate-500">이 코스 기준타수는 저장되어 다음 등록부터 자동 입력됩니다.</p>
+              )}
               <button onClick={saveGolfResult}
                 className="w-full rounded-xl bg-emerald-500 py-3 text-sm font-bold text-white shadow-sm active:bg-emerald-600">
                 결과 저장
