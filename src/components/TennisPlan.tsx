@@ -35,7 +35,7 @@ type Match = {
 type BookingSite = {
   id: string
   name: string
-  url: string
+  url?: string
   sport?: SportType | 'all'
 }
 
@@ -404,8 +404,8 @@ export default function TennisPlan() {
 
   // ─── 사이트 CRUD ───
   const addSite = async () => {
-    if (!siteForm.name.trim() || !siteForm.url.trim()) return
-    const row = { id: gid(), name: siteForm.name.trim(), url: siteForm.url.trim(), sport: siteForm.sport }
+    if (!siteForm.name.trim()) return
+    const row = { id: gid(), name: siteForm.name.trim(), url: siteForm.url.trim() || null, sport: siteForm.sport }
     const { row: data } = await apiData<{ row: BookingSite }>({ entity: 'booking_sites', action: 'upsert', payload: row })
     if (data) setSites((p) => [...p, data])
     setSiteForm({ name: '', url: '', sport: siteForm.sport })
@@ -469,25 +469,31 @@ export default function TennisPlan() {
           </div>
         )}
 
-        {/* ─── 예약 사이트 바로가기 (접기/펴기) ─── */}
+        {/* ─── 장소 목록 (접기/펴기) ─── */}
         <section className="mb-4 rounded-2xl bg-white shadow-sm ring-1 ring-slate-100">
           <button onClick={() => setSitesOpen(!sitesOpen)}
             className="flex w-full items-center justify-between px-4 py-3 text-left">
-            <span className="text-sm font-semibold text-slate-800">예약 사이트 바로가기</span>
+            <span className="text-sm font-semibold text-slate-800">장소 목록</span>
             <span className="text-xs text-slate-400">{sitesOpen ? '접기 ▲' : '펴기 ▼'}</span>
           </button>
           {sitesOpen && (
             <div className="border-t border-slate-100 px-4 pb-3 pt-2">
               {sites.length === 0 ? (
-                <p className="py-2 text-xs text-slate-400">등록된 사이트가 없습니다. 아래에서 추가하세요.</p>
+                <p className="py-2 text-xs text-slate-400">등록된 장소가 없습니다. 아래에서 추가하세요.</p>
               ) : (
                 <div className="mb-3 flex flex-wrap gap-2">
                   {sites.map((s) => (
                     <div key={s.id} className="flex items-center gap-1">
-                      <a href={s.url} target="_blank" rel="noreferrer"
-                        className="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200 active:bg-emerald-100">
-                        {s.name} {(s.sport && s.sport !== 'all') ? `· ${sportMeta({ sport: s.sport } as Schedule).label}` : '· 전체'} ↗
-                      </a>
+                      {s.url ? (
+                        <a href={s.url} target="_blank" rel="noreferrer"
+                          className="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200 active:bg-emerald-100">
+                          {s.name} {(s.sport && s.sport !== 'all') ? `· ${sportMeta({ sport: s.sport } as Schedule).label}` : '· 전체'} ↗
+                        </a>
+                      ) : (
+                        <span className="inline-flex items-center rounded-full bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+                          {s.name} {(s.sport && s.sport !== 'all') ? `· ${sportMeta({ sport: s.sport } as Schedule).label}` : '· 전체'}
+                        </span>
+                      )}
                       <button onClick={() => delSite(s.id)}
                         className="flex h-5 w-5 items-center justify-center rounded-full text-[10px] text-slate-400 hover:bg-red-50 hover:text-red-500">✕</button>
                     </div>
@@ -500,9 +506,9 @@ export default function TennisPlan() {
                   {SITE_SPORT_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                 </select>
                 <div className="flex gap-2">
-                  <input type="text" placeholder="사이트명" value={siteForm.name} onChange={(e) => setSiteForm((p) => ({ ...p, name: e.target.value }))}
+                  <input type="text" placeholder="장소명" value={siteForm.name} onChange={(e) => setSiteForm((p) => ({ ...p, name: e.target.value }))}
                     className="w-1/3 min-w-0 rounded-lg border border-slate-200 px-2.5 py-2 outline-none focus:border-emerald-400" />
-                  <input type="url" placeholder="https://..." value={siteForm.url} onChange={(e) => setSiteForm((p) => ({ ...p, url: e.target.value }))}
+                  <input type="url" placeholder="URL (선택)" value={siteForm.url} onChange={(e) => setSiteForm((p) => ({ ...p, url: e.target.value }))}
                     className="min-w-0 flex-1 rounded-lg border border-slate-200 px-2.5 py-2 outline-none focus:border-emerald-400" />
                 </div>
                 <button onClick={addSite} className="w-full rounded-lg bg-emerald-500 py-2 text-xs font-bold text-white active:bg-emerald-600">추가</button>

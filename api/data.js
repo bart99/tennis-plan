@@ -83,7 +83,7 @@ export default async function handler(req, res) {
       const row = payload
       const rows = await sql`
         INSERT INTO booking_sites (id, name, url, sport)
-        VALUES (${row.id}, ${row.name}, ${row.url}, ${row.sport ?? 'tennis'})
+        VALUES (${row.id}, ${row.name}, ${row.url ?? null}, ${row.sport ?? 'tennis'})
         ON CONFLICT (id) DO UPDATE SET
           name = EXCLUDED.name,
           url = EXCLUDED.url,
