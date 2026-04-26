@@ -83,12 +83,15 @@ export default async function handler(req, res) {
     if (entity === 'booking_sites' && action === 'upsert') {
       const row = payload
       const rows = await sql`
-        INSERT INTO booking_sites (id, name, url, sport)
-        VALUES (${row.id}, ${row.name}, ${row.url ?? null}, ${row.sport ?? 'tennis'})
+        INSERT INTO booking_sites (id, name, url, sport, club_name, course_name, side)
+        VALUES (${row.id}, ${row.name}, ${row.url ?? null}, ${row.sport ?? 'tennis'}, ${row.club_name ?? null}, ${row.course_name ?? null}, ${row.side ?? null})
         ON CONFLICT (id) DO UPDATE SET
           name = EXCLUDED.name,
           url = EXCLUDED.url,
-          sport = EXCLUDED.sport
+          sport = EXCLUDED.sport,
+          club_name = EXCLUDED.club_name,
+          course_name = EXCLUDED.course_name,
+          side = EXCLUDED.side
         RETURNING *
       `
       return json(res, 200, { row: rows[0] })
@@ -103,14 +106,28 @@ export default async function handler(req, res) {
     if (entity === 'golf_templates' && action === 'upsert') {
       const row = payload
       const rows = await sql`
-        INSERT INTO golf_course_templates (course_name, holes, updated_at)
-        VALUES (${row.course_name}, ${JSON.stringify(row.holes ?? [])}::jsonb, NOW())
-        ON CONFLICT (course_name) DO UPDATE SET
+        INSERT INTO golf_course_templates (club_name, course_name, side, holes, updated_at)
+        VALUES (${row.club_name ?? ''}, ${row.course_name}, ${row.side ?? 'OUT'}, ${JSON.stringify(row.holes ?? [])}::jsonb, NOW())
+        ON CONFLICT (club_name, course_name, side) DO UPDATE SET
           holes = EXCLUDED.holes,
           updated_at = NOW()
         RETURNING *
       `
       return json(res, 200, { row: rows[0] })
+    }
+
+    if (entity === 'golf_templates' && action === 'bulkUpsert') {
+      const rows = Array.isArray(payload?.rows) ? payload.rows : []
+      for (const row of rows) {
+        await sql`
+          INSERT INTO golf_course_templates (club_name, course_name, side, holes, updated_at)
+          VALUES (${row.club_name ?? ''}, ${row.course_name}, ${row.side ?? 'OUT'}, ${JSON.stringify(row.holes ?? [])}::jsonb, NOW())
+          ON CONFLICT (club_name, course_name, side) DO UPDATE SET
+            holes = EXCLUDED.holes,
+            updated_at = NOW()
+        `
+      }
+      return json(res, 200, { ok: true })
     }
 
     return json(res, 400, { error: 'Invalid action' })

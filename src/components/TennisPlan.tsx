@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 type UserName = '성호' | '윤희'
 type SportType = 'tennis' | 'golf' | 'running'
 type GolfHole = { hole: number; par: number; strokes: number }
-type GolfTemplate = { course_name: string; holes: GolfHole[] }
+type GolfTemplate = { club_name?: string; course_name: string; side: 'OUT' | 'IN'; holes: GolfHole[] }
 
 type Schedule = {
   id: string
@@ -19,6 +19,9 @@ type Schedule = {
     golfScore?: number
     golfTeeOff?: string
     golfHoles?: GolfHole[]
+    golfClub?: string
+    golfFrontCourse?: string
+    golfBackCourse?: string
     runningDistanceKm?: number
     runningMinutes?: number
     runningPace?: string
@@ -41,6 +44,9 @@ type BookingSite = {
   name: string
   url?: string
   sport?: SportType | 'all'
+  club_name?: string
+  course_name?: string
+  side?: 'OUT' | 'IN'
 }
 
 const HOURS = ['06', '07', '08', '09', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22'] as const
@@ -55,6 +61,7 @@ const SITE_SPORT_OPTIONS: { value: SportType | 'all'; label: string }[] = [
   { value: 'golf', label: '골프' },
   { value: 'running', label: '러닝' },
 ]
+const NINE_SIDES: Array<'OUT' | 'IN'> = ['OUT', 'IN']
 
 function ds(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -133,6 +140,16 @@ function normalizeCourseName(v?: string) {
   return (v ?? '').trim().replace(/\s+/g, ' ').toLowerCase()
 }
 
+function golfTemplateKey(clubName?: string, courseName?: string, side?: 'OUT' | 'IN') {
+  return `${normalizeCourseName(clubName)}::${normalizeCourseName(courseName)}::${side ?? 'OUT'}`
+}
+
+function splitNineHoles(holes: GolfHole[]) {
+  const out = holes.slice(0, 9).map((h, idx) => ({ hole: idx + 1, par: h.par || 4, strokes: h.strokes || 0 }))
+  const inn = holes.slice(9, 18).map((h, idx) => ({ hole: idx + 1, par: h.par || 4, strokes: h.strokes || 0 }))
+  return { out, inn }
+}
+
 function defaultGolfHoles(): GolfHole[] {
   return Array.from({ length: 18 }, (_, i) => ({ hole: i + 1, par: 4, strokes: 0 }))
 }
@@ -160,7 +177,12 @@ function scheduleSummary(s: Schedule) {
   if (sport === 'golf') {
     const score = s.detail_json?.golfScore ?? (s.detail_json?.golfHoles ? golfTotals(s.detail_json.golfHoles).totalStrokes : undefined)
     const teeOff = s.detail_json?.golfTeeOff
+    const course = s.detail_json?.golfFrontCourse && s.detail_json?.golfBackCourse
+      ? `${s.detail_json.golfFrontCourse}/${s.detail_json.golfBackCourse}`
+      : undefined
+    if (teeOff && score && course) return `${course} · ${formatGolfTime(teeOff)} · ${score}타`
     if (teeOff && score) return `티오프 ${formatGolfTime(teeOff)} · ${score}타`
+    if (teeOff && course) return `${course} · ${formatGolfTime(teeOff)}`
     if (teeOff) return `티오프 ${formatGolfTime(teeOff)}`
     return score ? `스코어 ${score}타` : '골프 기록'
   }
@@ -222,6 +244,9 @@ export default function TennisPlan() {
   const [gSchedId, setGSchedId] = useState('')
   const [gHoles, setGHoles] = useState<GolfHole[]>(defaultGolfHoles())
   const [gCourseName, setGCourseName] = useState('')
+  const [gClubName, setGClubName] = useState('')
+  const [gFrontCourseName, setGFrontCourseName] = useState('')
+  const [gBackCourseName, setGBackCourseName] = useState('')
   const [golfTemplates, setGolfTemplates] = useState<Record<string, GolfHole[]>>({})
 
   const [sf, setSf] = useState({
@@ -234,6 +259,9 @@ export default function TennisPlan() {
     court: '',
     note: '',
     golfTeeOff: '',
+    golfClub: '',
+    golfFrontCourse: '',
+    golfBackCourse: '',
     runningDistanceKm: '',
     runningMinutes: '',
   })
@@ -247,7 +275,14 @@ export default function TennisPlan() {
   const [mCommentS, setMCommentS] = useState('')
   const [mCommentY, setMCommentY] = useState('')
 
-  const [siteForm, setSiteForm] = useState<{ name: string; url: string; sport: SportType | 'all' }>({ name: '', url: '', sport: 'tennis' })
+  const [siteForm, setSiteForm] = useState<{ name: string; url: string; sport: SportType | 'all'; clubName: string; courseName: string; side: 'OUT' | 'IN' }>({
+    name: '',
+    url: '',
+    sport: 'tennis',
+    clubName: '',
+    courseName: '',
+    side: 'OUT',
+  })
 
   const [dbError, setDbError] = useState('')
 
@@ -312,8 +347,8 @@ export default function TennisPlan() {
         setSites(data.bookingSites ?? [])
         const templateMap: Record<string, GolfHole[]> = {}
         for (const t of data.golfTemplates ?? []) {
-          const key = normalizeCourseName(t.course_name)
-          if (key && Array.isArray(t.holes) && t.holes.length === 18) templateMap[key] = t.holes
+          const key = golfTemplateKey(t.club_name, t.course_name, t.side ?? 'OUT')
+          if (key && Array.isArray(t.holes) && t.holes.length === 9) templateMap[key] = t.holes
         }
         setGolfTemplates(templateMap)
       } catch (e) {
@@ -342,6 +377,28 @@ export default function TennisPlan() {
 
   const grid = useMemo(() => monthGrid(month, filteredSchedules, filteredMatches), [month, filteredSchedules, filteredMatches])
   const ml = `${month.getFullYear()}년 ${month.getMonth() + 1}월`
+  const golfSiteRows = useMemo(
+    () => sites.filter((s) => s.sport === 'golf'),
+    [sites],
+  )
+  const golfClubOptions = useMemo(
+    () => Array.from(new Set(golfSiteRows.map((s) => (s.club_name || '').trim()).filter(Boolean))),
+    [golfSiteRows],
+  )
+  const golfFrontCourseOptions = useMemo(
+    () => Array.from(new Set(golfSiteRows
+      .filter((s) => (s.club_name || '').trim() === sf.golfClub.trim() && (s.side || 'OUT') === 'OUT')
+      .map((s) => (s.course_name || s.name || '').trim())
+      .filter(Boolean))),
+    [golfSiteRows, sf.golfClub],
+  )
+  const golfBackCourseOptions = useMemo(
+    () => Array.from(new Set(golfSiteRows
+      .filter((s) => (s.club_name || '').trim() === sf.golfClub.trim() && (s.side || 'OUT') === 'IN')
+      .map((s) => (s.course_name || s.name || '').trim())
+      .filter(Boolean))),
+    [golfSiteRows, sf.golfClub],
+  )
 
   const daySch = useMemo(() => filteredSchedules.filter((s) => s.date === sel).sort((a, b) => (a.start_time || '').localeCompare(b.start_time || '')), [filteredSchedules, sel])
 
@@ -357,6 +414,7 @@ export default function TennisPlan() {
   const openSchedForm = (s?: Schedule) => {
     const sport = sportValue(s)
     const sourceHoles = s?.detail_json?.golfHoles?.length === 18 ? s.detail_json.golfHoles : defaultGolfHoles()
+    const dj = s?.detail_json ?? {}
     setSf({
       id: s?.id ?? '',
       date: s?.date ?? sel,
@@ -366,15 +424,31 @@ export default function TennisPlan() {
       endTime: s?.end_time ?? '',
       court: s?.court ?? '',
       note: s?.note ?? '',
-      golfTeeOff: s?.detail_json?.golfTeeOff ?? '',
-      runningDistanceKm: s?.detail_json?.runningDistanceKm ? String(s.detail_json.runningDistanceKm) : '',
-      runningMinutes: s?.detail_json?.runningMinutes ? String(s.detail_json.runningMinutes) : '',
+      golfTeeOff: dj.golfTeeOff ?? '',
+      golfClub: dj.golfClub ?? s?.court ?? '',
+      golfFrontCourse: dj.golfFrontCourse ?? '',
+      golfBackCourse: dj.golfBackCourse ?? '',
+      runningDistanceKm: dj.runningDistanceKm ? String(dj.runningDistanceKm) : '',
+      runningMinutes: dj.runningMinutes ? String(dj.runningMinutes) : '',
     })
     setSfGolfPars(sourceHoles.map((h) => h.par || 4))
     setPanel('schedule')
   }
 
+  const applyGolfTemplatesBySelection = (clubName: string, frontCourseName: string, backCourseName: string) => {
+    const outTemplate = golfTemplates[golfTemplateKey(clubName, frontCourseName, 'OUT')]
+    const inTemplate = golfTemplates[golfTemplateKey(clubName, backCourseName, 'IN')]
+    if (outTemplate?.length === 9 || inTemplate?.length === 9) {
+      const nextPars = [
+        ...(outTemplate?.map((h) => h.par || 4) ?? defaultGolfPars().slice(0, 9)),
+        ...(inTemplate?.map((h) => h.par || 4) ?? defaultGolfPars().slice(9, 18)),
+      ]
+      setSfGolfPars(nextPars)
+    }
+  }
+
   const saveSched = async () => {
+    if (sf.sport === 'golf' && (!sf.golfClub.trim() || !sf.golfFrontCourse.trim() || !sf.golfBackCourse.trim())) return
     const id = sf.id || gid()
     const detail = {
       runningDistanceKm: sf.runningDistanceKm ? Number(sf.runningDistanceKm) : undefined,
@@ -394,16 +468,21 @@ export default function TennisPlan() {
       id,
       date: sf.date || sel,
       sport: sf.sport,
-      title: sf.title || (sf.sport === 'tennis' ? null : sf.court || null),
+      title: sf.sport === 'golf'
+        ? `${sf.golfClub.trim()} ${sf.golfFrontCourse.trim()}-${sf.golfBackCourse.trim()}`.trim()
+        : (sf.title || (sf.sport === 'tennis' ? null : sf.court || null)),
       start_time: sf.sport === 'tennis' ? (sf.startTime || null) : null,
       end_time: sf.sport === 'tennis' ? (sf.endTime || null) : null,
-      court: sf.court || null,
+      court: sf.sport === 'golf' ? (sf.court || sf.golfClub || null) : (sf.court || null),
       note: sf.note || null,
       match_id: sf.id ? schedules.find((s) => s.id === sf.id)?.match_id ?? null : null,
       detail_json: sf.sport === 'golf'
         ? {
             ...(existing?.detail_json ?? {}),
             golfTeeOff: sf.golfTeeOff || undefined,
+          golfClub: sf.golfClub || undefined,
+          golfFrontCourse: sf.golfFrontCourse || undefined,
+          golfBackCourse: sf.golfBackCourse || undefined,
             golfHoles: golfHolesForSave,
             golfScore: existing?.detail_json?.golfScore,
           }
@@ -417,16 +496,27 @@ export default function TennisPlan() {
     else setSchedules((p) => [...p, data])
 
     if (sf.sport === 'golf') {
-      const courseName = (sf.court || sf.title || '').trim()
-      const normalizedCourse = normalizeCourseName(courseName)
-      if (normalizedCourse) {
-        const templateHoles: GolfHole[] = sfGolfPars.map((par, idx) => ({ hole: idx + 1, par: par || 4, strokes: 0 }))
-        await apiData<{ row: GolfTemplate }>({
+      const clubName = sf.golfClub.trim()
+      const frontName = sf.golfFrontCourse.trim()
+      const backName = sf.golfBackCourse.trim()
+      if (clubName && frontName && backName) {
+        const allHoles: GolfHole[] = sfGolfPars.map((par, idx) => ({ hole: idx + 1, par: par || 4, strokes: 0 }))
+        const split = splitNineHoles(allHoles)
+        await apiData({
           entity: 'golf_templates',
-          action: 'upsert',
-          payload: { course_name: courseName, holes: templateHoles },
+          action: 'bulkUpsert',
+          payload: {
+            rows: [
+              { club_name: clubName, course_name: frontName, side: 'OUT', holes: split.out },
+              { club_name: clubName, course_name: backName, side: 'IN', holes: split.inn },
+            ],
+          },
         })
-        setGolfTemplates((prev) => ({ ...prev, [normalizedCourse]: templateHoles }))
+        setGolfTemplates((prev) => ({
+          ...prev,
+          [golfTemplateKey(clubName, frontName, 'OUT')]: split.out,
+          [golfTemplateKey(clubName, backName, 'IN')]: split.inn,
+        }))
       }
     }
     setPanel(null)
@@ -439,22 +529,29 @@ export default function TennisPlan() {
   }
 
   const openGolfResultForm = (s: Schedule) => {
-    const courseName = (s.court || s.title || '').trim()
-    const key = normalizeCourseName(courseName)
-    const templateHoles = key ? golfTemplates[key] : undefined
+    const clubName = s.detail_json?.golfClub ?? ''
+    const frontCourse = s.detail_json?.golfFrontCourse ?? ''
+    const backCourse = s.detail_json?.golfBackCourse ?? ''
+    const outTemplate = golfTemplates[golfTemplateKey(clubName, frontCourse, 'OUT')]
+    const inTemplate = golfTemplates[golfTemplateKey(clubName, backCourse, 'IN')]
+    const fallbackHoles = outTemplate?.length === 9 || inTemplate?.length === 9
+      ? [
+          ...(outTemplate ?? defaultGolfHoles().slice(0, 9)),
+          ...(inTemplate ?? defaultGolfHoles().slice(9, 18)),
+        ]
+      : defaultGolfHoles()
     setGSchedId(s.id)
-    setGCourseName(courseName)
-    setGHoles(s.detail_json?.golfHoles?.length === 18 ? s.detail_json.golfHoles : (templateHoles ?? defaultGolfHoles()))
+    setGCourseName((s.court || s.title || '').trim())
+    setGClubName(clubName)
+    setGFrontCourseName(frontCourse)
+    setGBackCourseName(backCourse)
+    setGHoles(s.detail_json?.golfHoles?.length === 18 ? s.detail_json.golfHoles : fallbackHoles)
     setPanel('golfResult')
   }
 
-  const tryApplyGolfTemplate = (courseNameRaw: string) => {
-    const key = normalizeCourseName(courseNameRaw)
-    if (!key || sf.sport !== 'golf') return
-    const template = golfTemplates[key]
-    if (template?.length === 18) {
-      setSfGolfPars(template.map((h) => h.par || 4))
-    }
+  const tryApplyGolfTemplate = () => {
+    if (sf.sport !== 'golf') return
+    applyGolfTemplatesBySelection(sf.golfClub, sf.golfFrontCourse, sf.golfBackCourse)
   }
 
   const saveGolfResult = async () => {
@@ -480,14 +577,23 @@ export default function TennisPlan() {
     const result = await apiData<{ row: Schedule }>({ entity: 'schedules', action: 'upsert', payload: row })
     setSchedules((p) => p.map((s) => s.id === gSchedId ? result.row : s))
 
-    const normalizedCourse = normalizeCourseName(gCourseName)
-    if (normalizedCourse) {
-      await apiData<{ row: GolfTemplate }>({
+    if (gClubName && gFrontCourseName && gBackCourseName) {
+      const split = splitNineHoles(gHoles)
+      await apiData({
         entity: 'golf_templates',
-        action: 'upsert',
-        payload: { course_name: gCourseName.trim(), holes: gHoles },
+        action: 'bulkUpsert',
+        payload: {
+          rows: [
+            { club_name: gClubName, course_name: gFrontCourseName, side: 'OUT', holes: split.out },
+            { club_name: gClubName, course_name: gBackCourseName, side: 'IN', holes: split.inn },
+          ],
+        },
       })
-      setGolfTemplates((prev) => ({ ...prev, [normalizedCourse]: gHoles }))
+      setGolfTemplates((prev) => ({
+        ...prev,
+        [golfTemplateKey(gClubName, gFrontCourseName, 'OUT')]: split.out,
+        [golfTemplateKey(gClubName, gBackCourseName, 'IN')]: split.inn,
+      }))
     }
     setPanel(null)
   }
@@ -537,11 +643,22 @@ export default function TennisPlan() {
 
   // ─── 사이트 CRUD ───
   const addSite = async () => {
-    if (!siteForm.name.trim()) return
-    const row = { id: gid(), name: siteForm.name.trim(), url: siteForm.url.trim() || null, sport: siteForm.sport }
+    const fallbackName = siteForm.sport === 'golf' ? siteForm.courseName.trim() : ''
+    const displayName = siteForm.name.trim() || fallbackName
+    if (!displayName) return
+    if (siteForm.sport === 'golf' && (!siteForm.clubName.trim() || !siteForm.courseName.trim())) return
+    const row = {
+      id: gid(),
+      name: displayName,
+      url: siteForm.url.trim() || null,
+      sport: siteForm.sport,
+      club_name: siteForm.sport === 'golf' ? (siteForm.clubName.trim() || null) : null,
+      course_name: siteForm.sport === 'golf' ? (siteForm.courseName.trim() || null) : null,
+      side: siteForm.sport === 'golf' ? siteForm.side : null,
+    }
     const { row: data } = await apiData<{ row: BookingSite }>({ entity: 'booking_sites', action: 'upsert', payload: row })
     if (data) setSites((p) => [...p, data])
-    setSiteForm({ name: '', url: '', sport: siteForm.sport })
+    setSiteForm((p) => ({ ...p, name: '', url: '', courseName: '' }))
   }
 
   const delSite = async (id: string) => {
@@ -620,11 +737,15 @@ export default function TennisPlan() {
                       {s.url ? (
                         <a href={s.url} target="_blank" rel="noreferrer"
                           className="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200 active:bg-emerald-100">
-                          {s.name} {(s.sport && s.sport !== 'all') ? `· ${sportMeta({ sport: s.sport } as Schedule).label}` : '· 전체'} ↗
+                          {s.sport === 'golf' && s.club_name && s.course_name
+                            ? `${s.club_name} · ${s.course_name} ${s.side || 'OUT'}`
+                            : s.name} {(s.sport && s.sport !== 'all') ? `· ${sportMeta({ sport: s.sport } as Schedule).label}` : '· 전체'} ↗
                         </a>
                       ) : (
                         <span className="inline-flex items-center rounded-full bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
-                          {s.name} {(s.sport && s.sport !== 'all') ? `· ${sportMeta({ sport: s.sport } as Schedule).label}` : '· 전체'}
+                          {s.sport === 'golf' && s.club_name && s.course_name
+                            ? `${s.club_name} · ${s.course_name} ${s.side || 'OUT'}`
+                            : s.name} {(s.sport && s.sport !== 'all') ? `· ${sportMeta({ sport: s.sport } as Schedule).label}` : '· 전체'}
                         </span>
                       )}
                       <button onClick={() => delSite(s.id)}
@@ -634,12 +755,24 @@ export default function TennisPlan() {
                 </div>
               )}
               <div className="space-y-2 text-xs">
-                <select value={siteForm.sport} onChange={(e) => setSiteForm((p) => ({ ...p, sport: e.target.value as SportType | 'all' }))}
+                <select value={siteForm.sport} onChange={(e) => setSiteForm((p) => ({ ...p, sport: e.target.value as SportType | 'all', clubName: '', courseName: '', side: 'OUT' }))}
                   className="w-full rounded-lg border border-slate-200 px-2.5 py-2 outline-none focus:border-emerald-400">
                   {SITE_SPORT_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                 </select>
+                {siteForm.sport === 'golf' && (
+                  <div className="grid grid-cols-3 gap-2">
+                    <input type="text" placeholder="골프장명" value={siteForm.clubName} onChange={(e) => setSiteForm((p) => ({ ...p, clubName: e.target.value }))}
+                      className="min-w-0 rounded-lg border border-slate-200 px-2.5 py-2 outline-none focus:border-emerald-400" />
+                    <input type="text" placeholder="코스명" value={siteForm.courseName} onChange={(e) => setSiteForm((p) => ({ ...p, courseName: e.target.value, name: e.target.value || p.name }))}
+                      className="min-w-0 rounded-lg border border-slate-200 px-2.5 py-2 outline-none focus:border-emerald-400" />
+                    <select value={siteForm.side} onChange={(e) => setSiteForm((p) => ({ ...p, side: e.target.value as 'OUT' | 'IN' }))}
+                      className="min-w-0 rounded-lg border border-slate-200 px-2.5 py-2 outline-none focus:border-emerald-400">
+                      {NINE_SIDES.map((side) => <option key={side} value={side}>{side}</option>)}
+                    </select>
+                  </div>
+                )}
                 <div className="flex gap-2">
-                  <input type="text" placeholder="장소명" value={siteForm.name} onChange={(e) => setSiteForm((p) => ({ ...p, name: e.target.value }))}
+                  <input type="text" placeholder={siteForm.sport === 'golf' ? '표시명(선택)' : '장소명'} value={siteForm.name} onChange={(e) => setSiteForm((p) => ({ ...p, name: e.target.value }))}
                     className="w-1/3 min-w-0 rounded-lg border border-slate-200 px-2.5 py-2 outline-none focus:border-emerald-400" />
                   <input type="url" placeholder="URL (선택)" value={siteForm.url} onChange={(e) => setSiteForm((p) => ({ ...p, url: e.target.value }))}
                     className="min-w-0 flex-1 rounded-lg border border-slate-200 px-2.5 py-2 outline-none focus:border-emerald-400" />
@@ -1011,39 +1144,94 @@ export default function TennisPlan() {
                 </div>
               )}
 
-              <div ref={courtBoxRef} className="relative">
-                <label className="mb-1 block text-xs font-medium text-slate-600">{sf.sport === 'golf' ? '코스/장소' : '장소'}</label>
-                <input type="text" placeholder={sf.sport === 'running' ? '러닝 코스/장소' : '장소명 입력 또는 선택'} value={sf.court}
-                  onChange={(e) => setSf((p) => ({ ...p, court: e.target.value }))}
-                  onFocus={() => setShowCourtSuggestions(true)}
-                  onBlur={() => {
-                    setTimeout(() => setShowCourtSuggestions(false), 120)
-                    tryApplyGolfTemplate(sf.court)
-                  }}
-                  onKeyDown={(e) => { if (e.key === 'Escape') setShowCourtSuggestions(false) }}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400" />
-                <p className="mt-1 text-[11px] text-slate-400">
-                  직접 입력 기본, 아래 목록은 선택한 종목 기준 빠른 선택용
-                </p>
-                {showCourtSuggestions && sites.some((s) => s.sport === 'all' || s.sport === sf.sport || !s.sport) && (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {sites.filter((s) => s.sport === 'all' || s.sport === sf.sport || !s.sport).map((s) => (
-                      <button
-                        key={s.id}
-                        type="button"
-                        onClick={() => {
-                          setSf((p) => ({ ...p, court: s.name }))
-                          tryApplyGolfTemplate(s.name)
-                          setShowCourtSuggestions(false)
-                        }}
-                        className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 active:bg-emerald-100"
-                      >
-                        {s.name}
-                      </button>
-                    ))}
+              {sf.sport !== 'golf' ? (
+                <div ref={courtBoxRef} className="relative">
+                  <label className="mb-1 block text-xs font-medium text-slate-600">장소</label>
+                  <input type="text" placeholder={sf.sport === 'running' ? '러닝 코스/장소' : '장소명 입력 또는 선택'} value={sf.court}
+                    onChange={(e) => setSf((p) => ({ ...p, court: e.target.value }))}
+                    onFocus={() => setShowCourtSuggestions(true)}
+                    onBlur={() => setTimeout(() => setShowCourtSuggestions(false), 120)}
+                    onKeyDown={(e) => { if (e.key === 'Escape') setShowCourtSuggestions(false) }}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400" />
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    직접 입력 기본, 아래 목록은 선택한 종목 기준 빠른 선택용
+                  </p>
+                  {showCourtSuggestions && sites.some((s) => s.sport === 'all' || s.sport === sf.sport || !s.sport) && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {sites.filter((s) => s.sport === 'all' || s.sport === sf.sport || !s.sport).map((s) => (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() => {
+                            setSf((p) => ({ ...p, court: s.name }))
+                            setShowCourtSuggestions(false)
+                          }}
+                          className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 active:bg-emerald-100"
+                        >
+                          {s.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-600">골프장</label>
+                    <input
+                      type="text"
+                      list="golf-club-list"
+                      placeholder="골프장명 입력 또는 선택"
+                      value={sf.golfClub}
+                      onChange={(e) => setSf((p) => ({ ...p, golfClub: e.target.value }))}
+                      onBlur={() => tryApplyGolfTemplate()}
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
+                    />
+                    <datalist id="golf-club-list">
+                      {golfClubOptions.map((club) => <option key={club} value={club} />)}
+                    </datalist>
                   </div>
-                )}
-              </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-slate-600">전반 코스 (OUT)</label>
+                      <input
+                        type="text"
+                        list="golf-front-course-list"
+                        placeholder="전반 코스"
+                        value={sf.golfFrontCourse}
+                        onChange={(e) => setSf((p) => ({ ...p, golfFrontCourse: e.target.value }))}
+                        onBlur={() => tryApplyGolfTemplate()}
+                        className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
+                      />
+                      <datalist id="golf-front-course-list">
+                        {golfFrontCourseOptions.map((c) => <option key={c} value={c} />)}
+                      </datalist>
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-slate-600">후반 코스 (IN)</label>
+                      <input
+                        type="text"
+                        list="golf-back-course-list"
+                        placeholder="후반 코스"
+                        value={sf.golfBackCourse}
+                        onChange={(e) => setSf((p) => ({ ...p, golfBackCourse: e.target.value }))}
+                        onBlur={() => tryApplyGolfTemplate()}
+                        className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
+                      />
+                      <datalist id="golf-back-course-list">
+                        {golfBackCourseOptions.map((c) => <option key={c} value={c} />)}
+                      </datalist>
+                    </div>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="표시할 장소명 (선택)"
+                    value={sf.court}
+                    onChange={(e) => setSf((p) => ({ ...p, court: e.target.value }))}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
+                  />
+                </div>
+              )}
 
               {sf.sport === 'golf' && (
                 <div className="space-y-2">
