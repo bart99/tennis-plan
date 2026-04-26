@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { supabase } from '../lib/supabase'
 
 type UserName = '성호' | '윤희'
 
@@ -55,6 +54,23 @@ function setScoreLabel(sets: SetScore[]) {
 }
 
 const TENNIS_EMOJIS = ['🎾', '🥯', '🏆', '🥇', '💪', '🔥', '⚡', '👏', '🙌', '😎', '😤', '😅', '👍', '🎯', '❤️'] as const
+
+async function apiData<T>(body?: unknown): Promise<T> {
+  const response = await fetch('/api/data', {
+    method: body ? 'POST' : 'GET',
+    headers: { 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+  })
+  if (!response.ok) {
+    let message = '서버 요청 실패'
+    try {
+      const err = await response.json()
+      if (typeof err?.error === 'string') message = err.error
+    } catch { /* ignore */ }
+    throw new Error(message)
+  }
+  return response.json() as Promise<T>
+}
 
 function matchWinner(sets: SetScore[]): UserName | '무승부' | null {
   if (!sets.length) return null
@@ -148,22 +164,12 @@ export default function TennisPlan() {
   useEffect(() => {
     async function load() {
       try {
-        const [sRes, mRes, bRes] = await Promise.all([
-          supabase.from('schedules').select('*').order('date'),
-          supabase.from('matches').select('*').order('date'),
-          supabase.from('booking_sites').select('*').order('created_at'),
-        ])
-        const err = sRes.error || mRes.error || bRes.error
-        if (err) {
-          console.error('[supabase]', err)
-          setDbError(err.message)
-        } else {
-          if (sRes.data) setSchedules(sRes.data)
-          if (mRes.data) setMatches(mRes.data)
-          if (bRes.data) setSites(bRes.data)
-        }
+        const data = await apiData<{ schedules: Schedule[]; matches: Match[]; bookingSites: BookingSite[] }>()
+        setSchedules(data.schedules ?? [])
+        setMatches(data.matches ?? [])
+        setSites(data.bookingSites ?? [])
       } catch (e) {
-        console.error('[supabase]', e)
+        console.error('[api]', e)
         setDbError(e instanceof Error ? e.message : 'DB 연결 실패')
       }
       setLoading(false)
@@ -211,21 +217,17 @@ export default function TennisPlan() {
       end_time: sf.endTime || null,
       court: sf.court || null,
       note: sf.note || null,
+      match_id: sf.id ? schedules.find((s) => s.id === sf.id)?.match_id ?? null : null,
     }
-
-    if (sf.id) {
-      const { data } = await supabase.from('schedules').update(row).eq('id', sf.id).select().single()
-      if (data) setSchedules((p) => p.map((s) => s.id === sf.id ? data : s))
-    } else {
-      const { data } = await supabase.from('schedules').insert(row).select().single()
-      if (data) setSchedules((p) => [...p, data])
-    }
+    const result = await apiData<{ row: Schedule }>({ entity: 'schedules', action: 'upsert', payload: row })
+    const data = result.row
+    if (sf.id) setSchedules((p) => p.map((s) => s.id === sf.id ? data : s))
+    else setSchedules((p) => [...p, data])
     setPanel(null)
   }
 
   const deleteSched = async (id: string) => {
-    await supabase.from('matches').delete().eq('schedule_id', id)
-    await supabase.from('schedules').delete().eq('id', id)
+    await apiData({ entity: 'schedules', action: 'delete', payload: { id } })
     setSchedules((p) => p.filter((s) => s.id !== id))
     setMatches((p) => p.filter((m) => m.schedule_id !== id))
   }
@@ -256,22 +258,19 @@ export default function TennisPlan() {
       comment_yunhee: mCommentY || null,
     }
 
-    if (mEditId) {
-      const { data } = await supabase.from('matches').update(row).eq('id', mEditId).select().single()
-      if (data) setMatches((p) => p.map((m) => m.id === mEditId ? data : m))
-    } else {
-      const { data } = await supabase.from('matches').insert(row).select().single()
-      if (data) setMatches((p) => [...p, data])
-    }
+    const result = await apiData<{ row: Match }>({ entity: 'matches', action: 'upsert', payload: row })
+    const data = result.row
+    if (mEditId) setMatches((p) => p.map((m) => m.id === mEditId ? data : m))
+    else setMatches((p) => [...p, data])
 
-    await supabase.from('schedules').update({ match_id: id }).eq('id', mSchedId)
+    await apiData({ entity: 'schedules', action: 'setMatchId', payload: { id: mSchedId, match_id: id } })
     setSchedules((p) => p.map((s) => s.id === mSchedId ? { ...s, match_id: id } : s))
     setPanel(null)
   }
 
   const deleteMatchResult = async (matchId: string, schedId: string) => {
-    await supabase.from('matches').delete().eq('id', matchId)
-    await supabase.from('schedules').update({ match_id: null }).eq('id', schedId)
+    await apiData({ entity: 'matches', action: 'delete', payload: { id: matchId } })
+    await apiData({ entity: 'schedules', action: 'setMatchId', payload: { id: schedId, match_id: null } })
     setMatches((p) => p.filter((m) => m.id !== matchId))
     setSchedules((p) => p.map((s) => s.id === schedId ? { ...s, match_id: undefined } : s))
   }
@@ -280,13 +279,13 @@ export default function TennisPlan() {
   const addSite = async () => {
     if (!siteForm.name.trim() || !siteForm.url.trim()) return
     const row = { id: gid(), name: siteForm.name.trim(), url: siteForm.url.trim() }
-    const { data } = await supabase.from('booking_sites').insert(row).select().single()
+    const { row: data } = await apiData<{ row: BookingSite }>({ entity: 'booking_sites', action: 'upsert', payload: row })
     if (data) setSites((p) => [...p, data])
     setSiteForm({ name: '', url: '' })
   }
 
   const delSite = async (id: string) => {
-    await supabase.from('booking_sites').delete().eq('id', id)
+    await apiData({ entity: 'booking_sites', action: 'delete', payload: { id } })
     setSites((p) => p.filter((s) => s.id !== id))
   }
 
