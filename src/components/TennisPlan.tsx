@@ -120,6 +120,14 @@ function runningPace(distanceKm: number, minutes: number) {
   return `${m}:${String(sec).padStart(2, '0')}/km`
 }
 
+function formatGolfTime(v?: string) {
+  if (!v) return ''
+  const [hh, mm] = v.split(':')
+  if (!hh || !mm) return v
+  if (mm === '00') return `${hh}시`
+  return `${hh}:${mm}`
+}
+
 function defaultGolfHoles(): GolfHole[] {
   return Array.from({ length: 18 }, (_, i) => ({ hole: i + 1, par: 4, strokes: 0 }))
 }
@@ -143,8 +151,8 @@ function scheduleSummary(s: Schedule) {
   if (sport === 'golf') {
     const score = s.detail_json?.golfScore ?? (s.detail_json?.golfHoles ? golfTotals(s.detail_json.golfHoles).totalStrokes : undefined)
     const teeOff = s.detail_json?.golfTeeOff
-    if (teeOff && score) return `티오프 ${teeOff.replace(':00', '시')} · ${score}타`
-    if (teeOff) return `티오프 ${teeOff.replace(':00', '시')}`
+    if (teeOff && score) return `티오프 ${formatGolfTime(teeOff)} · ${score}타`
+    if (teeOff) return `티오프 ${formatGolfTime(teeOff)}`
     return score ? `스코어 ${score}타` : '골프 기록'
   }
   if (sport === 'running') {
@@ -967,14 +975,13 @@ export default function TennisPlan() {
               {sf.sport === 'golf' && (
                 <div>
                   <label className="mb-1 block text-xs font-medium text-slate-600">티오프 타임</label>
-                  <select
-                    value={sf.golfTeeOff ? sf.golfTeeOff.slice(0, 2) : ''}
-                    onChange={(e) => setSf((p) => ({ ...p, golfTeeOff: e.target.value ? `${e.target.value}:00` : '' }))}
+                  <input
+                    type="time"
+                    step={60}
+                    value={sf.golfTeeOff}
+                    onChange={(e) => setSf((p) => ({ ...p, golfTeeOff: e.target.value }))}
                     className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
-                  >
-                    <option value="">선택</option>
-                    {HOURS.map((h) => <option key={h} value={h}>{h}시</option>)}
-                  </select>
+                  />
                 </div>
               )}
 
