@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 type UserName = '성호' | '윤희'
 type SportType = 'tennis' | 'golf' | 'running'
+type GolfHole = { hole: number; par: number; strokes: number }
 
 type Schedule = {
   id: string
@@ -15,6 +16,8 @@ type Schedule = {
   match_id?: string
   detail_json?: {
     golfScore?: number
+    golfTeeOff?: string
+    golfHoles?: GolfHole[]
     runningDistanceKm?: number
     runningMinutes?: number
     runningPace?: string
@@ -117,10 +120,31 @@ function runningPace(distanceKm: number, minutes: number) {
   return `${m}:${String(sec).padStart(2, '0')}/km`
 }
 
+function defaultGolfHoles(): GolfHole[] {
+  return Array.from({ length: 18 }, (_, i) => ({ hole: i + 1, par: 4, strokes: 0 }))
+}
+
+function golfTotals(holes: GolfHole[]) {
+  const out = holes.slice(0, 9)
+  const inn = holes.slice(9, 18)
+  const sum = (arr: GolfHole[], key: 'par' | 'strokes') => arr.reduce((acc, cur) => acc + (cur[key] || 0), 0)
+  const outPar = sum(out, 'par')
+  const inPar = sum(inn, 'par')
+  const outStrokes = sum(out, 'strokes')
+  const inStrokes = sum(inn, 'strokes')
+  const totalPar = outPar + inPar
+  const totalStrokes = outStrokes + inStrokes
+  const overPar = totalStrokes - totalPar
+  return { outPar, inPar, totalPar, outStrokes, inStrokes, totalStrokes, overPar }
+}
+
 function scheduleSummary(s: Schedule) {
   const sport = sportValue(s)
   if (sport === 'golf') {
-    const score = s.detail_json?.golfScore
+    const score = s.detail_json?.golfScore ?? (s.detail_json?.golfHoles ? golfTotals(s.detail_json.golfHoles).totalStrokes : undefined)
+    const teeOff = s.detail_json?.golfTeeOff
+    if (teeOff && score) return `티오프 ${teeOff.replace(':00', '시')} · ${score}타`
+    if (teeOff) return `티오프 ${teeOff.replace(':00', '시')}`
     return score ? `스코어 ${score}타` : '골프 기록'
   }
   if (sport === 'running') {
@@ -176,8 +200,10 @@ export default function TennisPlan() {
   const [viewMode, setViewMode] = useState<'calendar' | 'list'>('calendar')
   const [sportFilter, setSportFilter] = useState<'all' | SportType>('all')
 
-  type Panel = null | 'schedule' | 'match'
+  type Panel = null | 'schedule' | 'match' | 'golfResult'
   const [panel, setPanel] = useState<Panel>(null)
+  const [gSchedId, setGSchedId] = useState('')
+  const [gHoles, setGHoles] = useState<GolfHole[]>(defaultGolfHoles())
 
   const [sf, setSf] = useState({
     id: '',
@@ -188,7 +214,7 @@ export default function TennisPlan() {
     endTime: '',
     court: '',
     note: '',
-    golfScore: '',
+    golfTeeOff: '',
     runningDistanceKm: '',
     runningMinutes: '',
   })
@@ -313,7 +339,7 @@ export default function TennisPlan() {
       endTime: s?.end_time ?? '',
       court: s?.court ?? '',
       note: s?.note ?? '',
-      golfScore: s?.detail_json?.golfScore ? String(s.detail_json.golfScore) : '',
+      golfTeeOff: s?.detail_json?.golfTeeOff ?? '',
       runningDistanceKm: s?.detail_json?.runningDistanceKm ? String(s.detail_json.runningDistanceKm) : '',
       runningMinutes: s?.detail_json?.runningMinutes ? String(s.detail_json.runningMinutes) : '',
     })
@@ -323,7 +349,6 @@ export default function TennisPlan() {
   const saveSched = async () => {
     const id = sf.id || gid()
     const detail = {
-      golfScore: sf.golfScore ? Number(sf.golfScore) : undefined,
       runningDistanceKm: sf.runningDistanceKm ? Number(sf.runningDistanceKm) : undefined,
       runningMinutes: sf.runningMinutes ? Number(sf.runningMinutes) : undefined,
     }
@@ -341,7 +366,7 @@ export default function TennisPlan() {
       note: sf.note || null,
       match_id: sf.id ? schedules.find((s) => s.id === sf.id)?.match_id ?? null : null,
       detail_json: sf.sport === 'golf'
-        ? { golfScore: detail.golfScore }
+        ? { golfTeeOff: sf.golfTeeOff || undefined, golfScore: schedules.find((s) => s.id === sf.id)?.detail_json?.golfScore }
         : sf.sport === 'running'
           ? { runningDistanceKm: detail.runningDistanceKm, runningMinutes: detail.runningMinutes, runningPace: pace }
           : {},
@@ -357,6 +382,37 @@ export default function TennisPlan() {
     await apiData({ entity: 'schedules', action: 'delete', payload: { id } })
     setSchedules((p) => p.filter((s) => s.id !== id))
     setMatches((p) => p.filter((m) => m.schedule_id !== id))
+  }
+
+  const openGolfResultForm = (s: Schedule) => {
+    setGSchedId(s.id)
+    setGHoles(s.detail_json?.golfHoles?.length === 18 ? s.detail_json.golfHoles : defaultGolfHoles())
+    setPanel('golfResult')
+  }
+
+  const saveGolfResult = async () => {
+    const sched = schedules.find((s) => s.id === gSchedId)
+    if (!sched) return
+    const totals = golfTotals(gHoles)
+    const row = {
+      id: sched.id,
+      date: sched.date,
+      sport: sportValue(sched),
+      title: sched.title ?? null,
+      start_time: sched.start_time ?? null,
+      end_time: sched.end_time ?? null,
+      court: sched.court ?? null,
+      note: sched.note ?? null,
+      match_id: sched.match_id ?? null,
+      detail_json: {
+        ...(sched.detail_json ?? {}),
+        golfHoles: gHoles,
+        golfScore: totals.totalStrokes || undefined,
+      },
+    }
+    const result = await apiData<{ row: Schedule }>({ entity: 'schedules', action: 'upsert', payload: row })
+    setSchedules((p) => p.map((s) => s.id === gSchedId ? result.row : s))
+    setPanel(null)
   }
 
   // ─── 경기 CRUD ───
@@ -778,8 +834,46 @@ export default function TennisPlan() {
                           className="w-full rounded-xl border border-dashed border-sky-300 bg-sky-50/50 py-2.5 text-xs font-semibold text-sky-600 active:bg-sky-100">
                           결과 기록하기
                         </button>
+                      ) : sportValue(s) === 'golf' ? (
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs text-slate-500">기록: {scheduleSummary(s)}</p>
+                          <button
+                            onClick={() => openGolfResultForm(s)}
+                            className="rounded-lg px-2 py-1 text-[11px] text-slate-500 active:bg-slate-100"
+                          >
+                            {s.detail_json?.golfScore ? '결과 수정' : '결과 기록'}
+                          </button>
+                        </div>
                       ) : (
                         <p className="text-xs text-slate-500">기록: {scheduleSummary(s)}</p>
+                      )}
+                      {sportValue(s) === 'golf' && s.detail_json?.golfHoles?.length === 18 && (
+                        <div className="mt-2 overflow-x-auto rounded-xl border border-slate-200 bg-white p-2">
+                          <table className="w-[680px] text-[10px] text-slate-600">
+                            <thead>
+                              <tr>
+                                <th className="px-1 py-1 text-left">구분</th>
+                                {Array.from({ length: 18 }, (_, i) => <th key={i} className="px-1 py-1 text-center">{i + 1}</th>)}
+                                <th className="px-1 py-1 text-center">합계</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              <tr>
+                                <td className="px-1 py-1 font-semibold">Par</td>
+                                {s.detail_json.golfHoles.map((h) => <td key={`p-${h.hole}`} className="px-1 py-1 text-center">{h.par}</td>)}
+                                <td className="px-1 py-1 text-center font-bold">{golfTotals(s.detail_json.golfHoles).totalPar}</td>
+                              </tr>
+                              <tr>
+                                <td className="px-1 py-1 font-semibold">타수</td>
+                                {s.detail_json.golfHoles.map((h) => <td key={`s-${h.hole}`} className="px-1 py-1 text-center">{h.strokes || '-'}</td>)}
+                                <td className="px-1 py-1 text-center font-bold">{golfTotals(s.detail_json.golfHoles).totalStrokes || '-'}</td>
+                              </tr>
+                            </tbody>
+                          </table>
+                          <p className="mt-1 text-[10px] text-slate-500">
+                            OUT {golfTotals(s.detail_json.golfHoles).outStrokes} / IN {golfTotals(s.detail_json.golfHoles).inStrokes} / 오버파 {golfTotals(s.detail_json.golfHoles).overPar > 0 ? `+${golfTotals(s.detail_json.golfHoles).overPar}` : golfTotals(s.detail_json.golfHoles).overPar}
+                          </p>
+                        </div>
                       )}
                       {sportValue(s) === 'tennis' && (m?.comment_sungho || m?.comment_yunhee) && (
                         <div className="mt-1.5 space-y-0.5">
@@ -872,15 +966,15 @@ export default function TennisPlan() {
 
               {sf.sport === 'golf' && (
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-600">스코어(타수)</label>
-                  <input
-                    type="number"
-                    min={1}
-                    placeholder="예: 92"
-                    value={sf.golfScore}
-                    onChange={(e) => setSf((p) => ({ ...p, golfScore: e.target.value }))}
+                  <label className="mb-1 block text-xs font-medium text-slate-600">티오프 타임</label>
+                  <select
+                    value={sf.golfTeeOff ? sf.golfTeeOff.slice(0, 2) : ''}
+                    onChange={(e) => setSf((p) => ({ ...p, golfTeeOff: e.target.value ? `${e.target.value}:00` : '' }))}
                     className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
-                  />
+                  >
+                    <option value="">선택</option>
+                    {HOURS.map((h) => <option key={h} value={h}>{h}시</option>)}
+                  </select>
                 </div>
               )}
 
@@ -922,6 +1016,60 @@ export default function TennisPlan() {
               <button onClick={saveSched}
                 className="w-full rounded-xl bg-emerald-500 py-3 text-sm font-bold text-white shadow-sm active:bg-emerald-600">
                 {sf.id ? '일정 수정' : '일정 등록'}
+              </button>
+            </div>
+          )}
+
+          {/* ─── 골프 결과 기록 폼 ─── */}
+          {panel === 'golfResult' && (
+            <div className="space-y-3">
+              <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white p-2">
+                <table className="w-[700px] text-[11px] text-slate-600">
+                  <thead>
+                    <tr>
+                      <th className="px-1 py-1 text-left">홀</th>
+                      {Array.from({ length: 18 }, (_, i) => <th key={i} className="px-1 py-1 text-center">{i + 1}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td className="px-1 py-1 font-semibold">Par</td>
+                      {gHoles.map((h, idx) => (
+                        <td key={`gp-${h.hole}`} className="px-1 py-1 text-center">
+                          <input
+                            type="number"
+                            min={3}
+                            max={6}
+                            value={h.par}
+                            onChange={(e) => setGHoles((prev) => prev.map((v, i) => i === idx ? { ...v, par: Number(e.target.value) || 0 } : v))}
+                            className="w-10 rounded border border-slate-200 px-1 py-0.5 text-center"
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <td className="px-1 py-1 font-semibold">타수</td>
+                      {gHoles.map((h, idx) => (
+                        <td key={`gs-${h.hole}`} className="px-1 py-1 text-center">
+                          <input
+                            type="number"
+                            min={1}
+                            value={h.strokes || ''}
+                            onChange={(e) => setGHoles((prev) => prev.map((v, i) => i === idx ? { ...v, strokes: Number(e.target.value) || 0 } : v))}
+                            className="w-10 rounded border border-slate-200 px-1 py-0.5 text-center"
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                OUT {golfTotals(gHoles).outStrokes} / IN {golfTotals(gHoles).inStrokes} / TOTAL {golfTotals(gHoles).totalStrokes} / 오버파 {golfTotals(gHoles).overPar > 0 ? `+${golfTotals(gHoles).overPar}` : golfTotals(gHoles).overPar}
+              </div>
+              <button onClick={saveGolfResult}
+                className="w-full rounded-xl bg-emerald-500 py-3 text-sm font-bold text-white shadow-sm active:bg-emerald-600">
+                결과 저장
               </button>
             </div>
           )}
