@@ -192,6 +192,7 @@ export default function TennisPlan() {
     runningDistanceKm: '',
     runningMinutes: '',
   })
+  const [showCourtSuggestions, setShowCourtSuggestions] = useState(false)
 
   const [mSchedId, setMSchedId] = useState('')
   const [mEditId, setMEditId] = useState<string | null>(null)
@@ -809,17 +810,22 @@ export default function TennisPlan() {
                 <label className="mb-1 block text-xs font-medium text-slate-600">{sf.sport === 'golf' ? '코스/장소' : '장소'}</label>
                 <input type="text" placeholder={sf.sport === 'running' ? '러닝 코스/장소' : '장소명 입력 또는 선택'} value={sf.court}
                   onChange={(e) => setSf((p) => ({ ...p, court: e.target.value }))}
+                  onFocus={() => setShowCourtSuggestions(sf.sport === 'tennis')}
+                  onBlur={() => setTimeout(() => setShowCourtSuggestions(false), 120)}
                   className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400" />
                 <p className="mt-1 text-[11px] text-slate-400">
                   직접 입력 기본, 아래 목록은 선택한 종목 기준 빠른 선택용
                 </p>
-                {sites.some((s) => s.sport === 'all' || s.sport === sf.sport || !s.sport) && (
+                {showCourtSuggestions && sites.some((s) => s.sport === 'all' || s.sport === sf.sport || !s.sport) && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {sites.filter((s) => s.sport === 'all' || s.sport === sf.sport || !s.sport).map((s) => (
                       <button
                         key={s.id}
                         type="button"
-                        onClick={() => setSf((p) => ({ ...p, court: s.name }))}
+                        onClick={() => {
+                          setSf((p) => ({ ...p, court: s.name }))
+                          setShowCourtSuggestions(false)
+                        }}
                         className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 active:bg-emerald-100"
                       >
                         {s.name}
