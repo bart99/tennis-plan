@@ -137,6 +137,10 @@ function defaultGolfHoles(): GolfHole[] {
   return Array.from({ length: 18 }, (_, i) => ({ hole: i + 1, par: 4, strokes: 0 }))
 }
 
+function defaultGolfPars() {
+  return defaultGolfHoles().map((h) => h.par)
+}
+
 function golfTotals(holes: GolfHole[]) {
   const out = holes.slice(0, 9)
   const inn = holes.slice(9, 18)
@@ -233,6 +237,7 @@ export default function TennisPlan() {
     runningDistanceKm: '',
     runningMinutes: '',
   })
+  const [sfGolfPars, setSfGolfPars] = useState<number[]>(defaultGolfPars())
   const [showCourtSuggestions, setShowCourtSuggestions] = useState(false)
   const courtBoxRef = useRef<HTMLDivElement | null>(null)
 
@@ -351,6 +356,7 @@ export default function TennisPlan() {
   // ─── 일정 CRUD ───
   const openSchedForm = (s?: Schedule) => {
     const sport = sportValue(s)
+    const sourceHoles = s?.detail_json?.golfHoles?.length === 18 ? s.detail_json.golfHoles : defaultGolfHoles()
     setSf({
       id: s?.id ?? '',
       date: s?.date ?? sel,
@@ -364,6 +370,7 @@ export default function TennisPlan() {
       runningDistanceKm: s?.detail_json?.runningDistanceKm ? String(s.detail_json.runningDistanceKm) : '',
       runningMinutes: s?.detail_json?.runningMinutes ? String(s.detail_json.runningMinutes) : '',
     })
+    setSfGolfPars(sourceHoles.map((h) => h.par || 4))
     setPanel('schedule')
   }
 
@@ -376,6 +383,13 @@ export default function TennisPlan() {
     const pace = detail.runningDistanceKm && detail.runningMinutes
       ? runningPace(detail.runningDistanceKm, detail.runningMinutes)
       : undefined
+    const existing = sf.id ? schedules.find((s) => s.id === sf.id) : undefined
+    const existingHoles = existing?.detail_json?.golfHoles?.length === 18 ? existing.detail_json.golfHoles : defaultGolfHoles()
+    const golfHolesForSave: GolfHole[] = sfGolfPars.map((par, idx) => ({
+      hole: idx + 1,
+      par: par || 4,
+      strokes: existingHoles[idx]?.strokes || 0,
+    }))
     const row = {
       id,
       date: sf.date || sel,
@@ -388,8 +402,10 @@ export default function TennisPlan() {
       match_id: sf.id ? schedules.find((s) => s.id === sf.id)?.match_id ?? null : null,
       detail_json: sf.sport === 'golf'
         ? {
-            ...(schedules.find((s) => s.id === sf.id)?.detail_json ?? {}),
+            ...(existing?.detail_json ?? {}),
             golfTeeOff: sf.golfTeeOff || undefined,
+            golfHoles: golfHolesForSave,
+            golfScore: existing?.detail_json?.golfScore,
           }
         : sf.sport === 'running'
           ? { runningDistanceKm: detail.runningDistanceKm, runningMinutes: detail.runningMinutes, runningPace: pace }
@@ -399,6 +415,20 @@ export default function TennisPlan() {
     const data = result.row
     if (sf.id) setSchedules((p) => p.map((s) => s.id === sf.id ? data : s))
     else setSchedules((p) => [...p, data])
+
+    if (sf.sport === 'golf') {
+      const courseName = (sf.court || sf.title || '').trim()
+      const normalizedCourse = normalizeCourseName(courseName)
+      if (normalizedCourse) {
+        const templateHoles: GolfHole[] = sfGolfPars.map((par, idx) => ({ hole: idx + 1, par: par || 4, strokes: 0 }))
+        await apiData<{ row: GolfTemplate }>({
+          entity: 'golf_templates',
+          action: 'upsert',
+          payload: { course_name: courseName, holes: templateHoles },
+        })
+        setGolfTemplates((prev) => ({ ...prev, [normalizedCourse]: templateHoles }))
+      }
+    }
     setPanel(null)
   }
 
@@ -416,6 +446,15 @@ export default function TennisPlan() {
     setGCourseName(courseName)
     setGHoles(s.detail_json?.golfHoles?.length === 18 ? s.detail_json.golfHoles : (templateHoles ?? defaultGolfHoles()))
     setPanel('golfResult')
+  }
+
+  const tryApplyGolfTemplate = (courseNameRaw: string) => {
+    const key = normalizeCourseName(courseNameRaw)
+    if (!key || sf.sport !== 'golf') return
+    const template = golfTemplates[key]
+    if (template?.length === 18) {
+      setSfGolfPars(template.map((h) => h.par || 4))
+    }
   }
 
   const saveGolfResult = async () => {
@@ -977,7 +1016,10 @@ export default function TennisPlan() {
                 <input type="text" placeholder={sf.sport === 'running' ? '러닝 코스/장소' : '장소명 입력 또는 선택'} value={sf.court}
                   onChange={(e) => setSf((p) => ({ ...p, court: e.target.value }))}
                   onFocus={() => setShowCourtSuggestions(true)}
-                  onBlur={() => setTimeout(() => setShowCourtSuggestions(false), 120)}
+                  onBlur={() => {
+                    setTimeout(() => setShowCourtSuggestions(false), 120)
+                    tryApplyGolfTemplate(sf.court)
+                  }}
                   onKeyDown={(e) => { if (e.key === 'Escape') setShowCourtSuggestions(false) }}
                   className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400" />
                 <p className="mt-1 text-[11px] text-slate-400">
@@ -991,6 +1033,7 @@ export default function TennisPlan() {
                         type="button"
                         onClick={() => {
                           setSf((p) => ({ ...p, court: s.name }))
+                          tryApplyGolfTemplate(s.name)
                           setShowCourtSuggestions(false)
                         }}
                         className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 active:bg-emerald-100"
@@ -1003,15 +1046,46 @@ export default function TennisPlan() {
               </div>
 
               {sf.sport === 'golf' && (
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-600">티오프 타임</label>
-                  <input
-                    type="time"
-                    step={60}
-                    value={sf.golfTeeOff}
-                    onChange={(e) => setSf((p) => ({ ...p, golfTeeOff: e.target.value }))}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
-                  />
+                <div className="space-y-2">
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-600">티오프 타임</label>
+                    <input
+                      type="time"
+                      step={60}
+                      value={sf.golfTeeOff}
+                      onChange={(e) => setSf((p) => ({ ...p, golfTeeOff: e.target.value }))}
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
+                    />
+                  </div>
+                  <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white p-2">
+                    <p className="mb-1 text-[11px] font-semibold text-slate-600">홀별 기준타수 (Par)</p>
+                    <table className="w-[680px] text-[10px] text-slate-600">
+                      <thead>
+                        <tr>
+                          <th className="px-1 py-1 text-left">홀</th>
+                          {Array.from({ length: 18 }, (_, i) => <th key={i} className="px-1 py-1 text-center">{i + 1}</th>)}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td className="px-1 py-1 font-semibold">Par</td>
+                          {sfGolfPars.map((par, idx) => (
+                            <td key={`sp-${idx}`} className="px-1 py-1 text-center">
+                              <input
+                                type="number"
+                                min={3}
+                                max={6}
+                                value={par}
+                                onChange={(e) => setSfGolfPars((prev) => prev.map((v, i) => i === idx ? (Number(e.target.value) || 0) : v))}
+                                className="w-10 rounded border border-slate-200 px-1 py-0.5 text-center"
+                              />
+                            </td>
+                          ))}
+                        </tr>
+                      </tbody>
+                    </table>
+                    <p className="mt-1 text-[10px] text-slate-500">일정 저장 시 코스 템플릿으로 저장되어 다음 등록에서 자동 불러옵니다.</p>
+                  </div>
                 </div>
               )}
 
